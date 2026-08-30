@@ -713,6 +713,7 @@ extension _PlexVideoControlsPlaybackInputMethods on _PlexVideoControlsState {
     final total = stacking ? _accumulatedSkip + travelled.abs() : travelled.abs();
     if (_wholeSeconds(total) == 0 && !stacking) return;
     _setSkipTotal(total);
+    _skipFeedbackNonce.value++;
     _showSkipFeedback(isForward: isForward);
   }
 

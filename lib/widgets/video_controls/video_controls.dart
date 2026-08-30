@@ -799,6 +799,10 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
   // cannot drift the label off the distance travelled (#2425).
   Duration _accumulatedSkip = Duration.zero;
   final ValueNotifier<int> _accumulatedSkipSeconds = ValueNotifier<int>(0);
+
+  /// Bumps once per skip press so the visualizer can replay its per-press
+  /// pulse/glide even when the accumulated total is all that changes.
+  final ValueNotifier<int> _skipFeedbackNonce = ValueNotifier<int>(0);
   // Desktop double-click detection (more reliable than Flutter's onDoubleTap).
   // The mobile skip zones do not use this; they pair off _singleTapTimer.
   DateTime? _lastSkipTapTime;
@@ -1080,6 +1084,7 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
     _feedbackTimer?.cancel();
     _feedbackHideTimer?.cancel();
     _accumulatedSkipSeconds.dispose();
+    _skipFeedbackNonce.dispose();
     _lockIconTimer?.cancel();
     _edgeAdjustmentIndicatorHideTimer?.cancel();
     _edgeAdjustmentIndicatorClearTimer?.cancel();
@@ -1379,12 +1384,11 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
                         child: AnimatedOpacity(
                           opacity: _doubleTapFeedbackOpacity,
                           duration: tokens(context).slow,
-                          child: RepaintBoundary(
-                            child: DoubleTapFeedback(
-                              isForward: _lastDoubleTapWasForward,
-                              seconds: _accumulatedSkipSeconds,
-                              animate: _doubleTapFeedbackOpacity > 0.0,
-                            ),
+                          child: DoubleTapFeedback(
+                            isForward: _lastDoubleTapWasForward,
+                            seconds: _accumulatedSkipSeconds,
+                            nonce: _skipFeedbackNonce,
+                            animate: _doubleTapFeedbackOpacity > 0.0,
                           ),
                         ),
                       ),
