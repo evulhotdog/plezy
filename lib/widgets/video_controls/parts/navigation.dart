@@ -22,6 +22,7 @@ extension _PlexVideoControlsNavigationMethods on _PlexVideoControlsState {
         onPlayPause: () => unawaited(_playOrPause()),
         chapters: _chapters,
         chaptersLoaded: _chaptersLoaded,
+        markers: _markers,
         showChapterMarkersOnTimeline: _showChapterMarkersOnTimeline,
         seekTimeSmall: _seekTimeSmall,
         onSeekToPreviousChapter: _seekToPreviousChapter,

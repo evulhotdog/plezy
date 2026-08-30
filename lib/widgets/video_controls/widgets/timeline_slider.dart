@@ -9,6 +9,7 @@ import '../../../services/scrub_preview_source.dart';
 import '../../../utils/formatters.dart';
 import '../helpers/eager_horizontal_drag_recognizer.dart';
 import '../painters/buffer_range_painter.dart';
+import '../painters/media_marker_painter.dart';
 
 /// Timeline slider with chapter markers for video playback
 ///
@@ -20,6 +21,7 @@ class TimelineSlider extends StatefulWidget {
   final List<BufferRange> bufferRanges;
   final List<MediaChapter> chapters;
   final bool chaptersLoaded;
+  final List<MediaMarker> markers;
   final bool showChapterMarkersOnTimeline;
   final ValueChanged<Duration> onSeek;
   final ValueChanged<Duration> onSeekEnd;
@@ -55,6 +57,7 @@ class TimelineSlider extends StatefulWidget {
     this.bufferRanges = const [],
     required this.chapters,
     required this.chaptersLoaded,
+    this.markers = const [],
     this.showChapterMarkersOnTimeline = true,
     required this.onSeek,
     required this.onSeekEnd,
@@ -334,19 +337,14 @@ class _TimelineSliderState extends State<TimelineSlider> {
           clipBehavior: Clip.none,
           alignment: .center,
           children: [
-            // Buffer range + segmented background track (with chapter gaps)
+            // Background/buffer track. Marker bands and chapter ticks render
+            // on their own layer above the played fill (see below).
             Positioned.fill(
               child: IgnorePointer(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: _sliderPadding),
                   child: CustomPaint(
-                    painter: BufferRangePainter(
-                      ranges: widget.bufferRanges,
-                      duration: widget.duration,
-                      chapters: widget.chaptersLoaded && widget.showChapterMarkersOnTimeline
-                          ? widget.chapters
-                          : const [],
-                    ),
+                    painter: BufferRangePainter(ranges: widget.bufferRanges, duration: widget.duration),
                   ),
                 ),
               ),
@@ -385,6 +383,21 @@ class _TimelineSliderState extends State<TimelineSlider> {
                       activeColor: Colors.white,
                       inactiveColor: Colors.transparent,
                     ),
+                  ),
+                ),
+              ),
+            ),
+            // Marker bands + chapter ticks above the played fill, so marker
+            // colors stay visible after their section has played and ticks
+            // stay readable while seeking past them. Ticks paint on top of
+            // the bands (painter first, foregroundPainter second).
+            Positioned.fill(
+              child: IgnorePointer(
+                child: CustomPaint(
+                  painter: MarkerBandPainter(markers: widget.markers, duration: widget.duration),
+                  foregroundPainter: ChapterTickPainter(
+                    chapters: widget.chaptersLoaded && widget.showChapterMarkersOnTimeline ? widget.chapters : const [],
+                    duration: widget.duration,
                   ),
                 ),
               ),
