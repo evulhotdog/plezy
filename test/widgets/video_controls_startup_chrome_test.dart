@@ -187,7 +187,11 @@ void main() {
         isEmpty,
         reason: 'the hidden-chrome layer must own the remote, not the screen self-heal',
       );
-      expect(find.text('10s'), findsOneWidget, reason: 'the seek badge answers, not the chrome');
+      expect(
+        find.text('10s'),
+        findsNWidgets(2),
+        reason: 'the seek badge answers, not the chrome (fill + keyline copies)',
+      );
       expectNoChrome('a directional seek must leave the picture alone');
 
       await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowRight);

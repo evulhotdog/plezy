@@ -657,6 +657,57 @@ void main() {
       expect(arrow.right, lessThan(surface.right), reason: 'inside the overscan-safe inset');
       expect(label.left, greaterThan(surface.center.dx), reason: 'anchored to the right half, not centred');
       expect(label.center.dy, moreOrLessEquals(surface.center.dy, epsilon: 2));
+      await settleFeedback(tester);
+    });
+
+    testWidgets('a fresh arrival fades in instead of just appearing', (tester) async {
+      await pumpControls(tester);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+
+      double fadeIn(WidgetTester tester) => tester
+          .widget<FadeTransition>(
+            find.descendant(of: find.byType(DoubleTapFeedback), matching: find.byType(FadeTransition)),
+          )
+          .opacity
+          .value;
+      expect(fadeIn(tester), lessThan(0.5), reason: 'the entrance starts transparent');
+
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(fadeIn(tester), 1.0, reason: 'and settles fully visible');
+
+      await settleFeedback(tester);
+    });
+
+    testWidgets('reversing direction replays the whole entrance on the other side', (tester) async {
+      await pumpControls(tester);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump(const Duration(milliseconds: 1100));
+      double chevronDx(WidgetTester tester) =>
+          tester.widget<Transform>(find.byKey(const ValueKey('seekChevronSlide'))).transform.getTranslation().x;
+      expect(chevronDx(tester), lessThan(-1.0), reason: 'still gliding on the right');
+
+      // Flip while still showing: the left side plays its own arrival —
+      // fade from nothing and a fresh slide from its own inward origin.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.pump();
+      double fadeIn(WidgetTester tester) => tester
+          .widget<FadeTransition>(
+            find.descendant(of: find.byType(DoubleTapFeedback), matching: find.byType(FadeTransition)),
+          )
+          .opacity
+          .value;
+      expect(fadeIn(tester), lessThan(0.5), reason: 'the flip replays the entrance fade');
+      expect(chevronDx(tester), greaterThan(60.0), reason: 'and the slide restarts from its inward origin');
+
+      final label = tester.getRect(find.text('10s').first);
+      final arrow = tester.getRect(
+        find.descendant(of: find.byType(DoubleTapFeedback), matching: find.byType(CustomPaint)),
+      );
+      final surface = tester.getRect(find.byType(PlexVideoControls));
+      expect(arrow.center.dx, lessThan(surface.center.dx), reason: 'the chevron now leads on the left side');
 
       await settleFeedback(tester);
     });
@@ -722,8 +773,8 @@ void main() {
       expect(minDx, greaterThanOrEqualTo(-96.5), reason: 'the slide never overshoots its resting spot');
       expect(maxDx, lessThanOrEqualTo(0.5), reason: 'forward travel never crosses behind the origin');
       expect(peakScale, greaterThan(1.05), reason: 'each press pops the chevron');
-      await tester.pump(const Duration(milliseconds: 650));
-      expect(chevronScale(tester), moreOrLessEquals(1.0, epsilon: 0.01), reason: 'the pulse settles back to rest');
+      await tester.pump(const Duration(milliseconds: 1150));
+      expect(chevronScale(tester), moreOrLessEquals(1.0, epsilon: 0.02), reason: 'the pulse settles back to rest');
       await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowRight);
       await tester.pump();
       // The burst dismissed, the readout comes all the way down.
