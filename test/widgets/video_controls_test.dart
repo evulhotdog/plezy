@@ -25,7 +25,7 @@ import 'package:plezy/watch_together/providers/watch_together_provider.dart';
 import 'package:plezy/widgets/video_controls/video_controls.dart';
 import 'package:plezy/widgets/video_controls/models/track_controls_state.dart';
 import 'package:plezy/widgets/video_controls/player_chrome_controller.dart';
-import 'package:plezy/widgets/video_controls/painters/buffer_range_painter.dart';
+import 'package:plezy/widgets/video_controls/painters/media_marker_painter.dart';
 import 'package:plezy/widgets/video_controls/widgets/mobile_skip_zones.dart';
 import 'package:plezy/widgets/video_controls/widgets/skip_marker_button.dart';
 import 'package:plezy/widgets/video_controls/widgets/sync_offset_control.dart';
@@ -1363,10 +1363,10 @@ void main() {
       );
 
       final customPaint = tester.widget<CustomPaint>(
-        find.byWidgetPredicate((widget) => widget is CustomPaint && widget.painter is BufferRangePainter),
+        find.byWidgetPredicate((widget) => widget is CustomPaint && widget.foregroundPainter is ChapterTickPainter),
       );
 
-      expect((customPaint.painter! as BufferRangePainter).chapters, isEmpty);
+      expect((customPaint.foregroundPainter! as ChapterTickPainter).chapters, isEmpty);
     });
 
     testWidgets('clamps stale position beyond duration before building slider', (tester) async {
