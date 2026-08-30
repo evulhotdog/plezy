@@ -682,6 +682,9 @@ void main() {
       );
 
       await tester.pump(const Duration(milliseconds: 500));
+      expect(fadeIn(tester), lessThan(1.0), reason: 'the fade holds back before arriving');
+
+      await tester.pump(const Duration(milliseconds: 700));
       expect(fadeIn(tester), 1.0, reason: 'and settles fully visible');
 
       await settleFeedback(tester);
