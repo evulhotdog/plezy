@@ -802,6 +802,9 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
   /// Bumps once per skip press so the visualizer can replay its per-press
   /// pulse/glide even when the accumulated total is all that changes.
   final ValueNotifier<int> _skipFeedbackNonce = ValueNotifier<int>(0);
+
+  /// The press's own direction, written before the nonce bumps — see DoubleTapFeedback.pressForward.
+  final ValueNotifier<bool> _skipFeedbackPressForward = ValueNotifier<bool>(true);
   // Desktop double-click detection (more reliable than Flutter's onDoubleTap).
   // The mobile skip zones do not use this; they pair off _singleTapTimer.
   DateTime? _lastSkipTapTime;
@@ -1068,6 +1071,7 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
     _feedbackHideTimer?.cancel();
     _accumulatedSkipSeconds.dispose();
     _skipFeedbackNonce.dispose();
+    _skipFeedbackPressForward.dispose();
     _lockIconTimer?.cancel();
     _edgeAdjustmentIndicatorHideTimer?.cancel();
     _edgeAdjustmentIndicatorClearTimer?.cancel();
@@ -1403,6 +1407,7 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
                             isForward: _lastDoubleTapWasForward,
                             seconds: _accumulatedSkipSeconds,
                             nonce: _skipFeedbackNonce,
+                            pressForward: _skipFeedbackPressForward,
                             animate: _doubleTapFeedbackOpacity > 0.0,
                           ),
                         ),
