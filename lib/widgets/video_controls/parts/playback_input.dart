@@ -647,10 +647,17 @@ extension _PlexVideoControlsPlaybackInputMethods on _PlexVideoControlsState {
   /// Accumulate skip feedback. Consecutive skips in the same direction stack
   /// into one running total; a direction flip restarts the count.
   void _registerSkipFeedback({required bool isForward, required int seconds}) {
+    final wasShowingThisSide =
+        _showDoubleTapFeedback && _lastDoubleTapWasForward == isForward && _doubleTapFeedbackOpacity == 1.0;
     final stacking = _showDoubleTapFeedback && _lastDoubleTapWasForward == isForward;
     _accumulatedSkipSeconds.value = stacking ? _accumulatedSkipSeconds.value + seconds : seconds;
+    // Written BEFORE the nonce bump: the visualizer's listener runs while the
+    // widget still holds the old direction, and needs the press's direction
+    // to tell a flip (no pop — the entrance replays) from a repeat (pop).
+    _lastDoubleTapWasForward = isForward;
+    _skipFeedbackPressForward.value = isForward;
     _skipFeedbackNonce.value++;
-    _showSkipFeedback(isForward: isForward);
+    _showSkipFeedback(isForward: isForward, alreadyVisible: wasShowingThisSide);
   }
 
   /// Wrap an absolute live action so it takes down the badge a pending live
@@ -711,9 +718,7 @@ extension _PlexVideoControlsPlaybackInputMethods on _PlexVideoControlsState {
   Duration get _skipFeedbackDuration => const bool.fromEnvironment('PLEZY_MAESTRO_E2E')
       ? const Duration(seconds: 30)
       : const Duration(milliseconds: 1200);
-
-  /// Show animated visual feedback for skip gesture
-  void _showSkipFeedback({required bool isForward}) {
+  void _showSkipFeedback({required bool isForward, required bool alreadyVisible}) {
     // Reads `tokens(context)` below, so a caller reaching here after disposal
     // would touch a defunct element rather than merely no-op.
     if (!mounted) return;
@@ -723,9 +728,9 @@ extension _PlexVideoControlsPlaybackInputMethods on _PlexVideoControlsState {
     _feedbackTimer?.cancel();
     _feedbackHideTimer?.cancel();
 
-    final feedbackAlreadyVisible =
-        _showDoubleTapFeedback && _lastDoubleTapWasForward == isForward && _doubleTapFeedbackOpacity == 1.0;
-    if (!feedbackAlreadyVisible) {
+    // alreadyVisible was measured against the previously shown direction, so a
+    // direction flip always takes the rebuild that replays the entrance.
+    if (!alreadyVisible) {
       _setControlsState(() {
         _lastDoubleTapWasForward = isForward;
         _showDoubleTapFeedback = true;

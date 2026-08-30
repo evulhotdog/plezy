@@ -644,8 +644,8 @@ void main() {
       // Amount and exactly one chevron, on one line, near the seek-side edge.
       final chevron = find.descendant(of: feedback, matching: find.byType(CustomPaint));
       expect(chevron, findsOneWidget);
-      final label = tester.getRect(find.text('10s').first);
       final arrow = tester.getRect(chevron);
+      final label = tester.getRect(find.text('10s').first);
       expect(arrow.left, greaterThan(label.left), reason: 'the chevron leads in the travel direction');
       expect(
         arrow.center.dy,
@@ -672,7 +672,14 @@ void main() {
           )
           .opacity
           .value;
+      double chevronScale(WidgetTester tester) =>
+          tester.widget<Transform>(find.byKey(const ValueKey('seekChevronPulse'))).transform.getMaxScaleOnAxis();
       expect(fadeIn(tester), lessThan(0.5), reason: 'the entrance starts transparent');
+      expect(
+        chevronScale(tester),
+        moreOrLessEquals(1.0, epsilon: 0.01),
+        reason: 'and at rest size — no pop on arrival',
+      );
 
       await tester.pump(const Duration(milliseconds: 500));
       expect(fadeIn(tester), 1.0, reason: 'and settles fully visible');
@@ -701,8 +708,14 @@ void main() {
           .value;
       expect(fadeIn(tester), lessThan(0.5), reason: 'the flip replays the entrance fade');
       expect(chevronDx(tester), greaterThan(60.0), reason: 'and the slide restarts from its inward origin');
+      double chevronScale(WidgetTester tester) =>
+          tester.widget<Transform>(find.byKey(const ValueKey('seekChevronPulse'))).transform.getMaxScaleOnAxis();
+      expect(
+        chevronScale(tester),
+        moreOrLessEquals(1.0, epsilon: 0.01),
+        reason: 'at rest size — the flip does not pop',
+      );
 
-      final label = tester.getRect(find.text('10s').first);
       final arrow = tester.getRect(
         find.descendant(of: find.byType(DoubleTapFeedback), matching: find.byType(CustomPaint)),
       );
@@ -810,6 +823,7 @@ void main() {
                         isForward: true,
                         seconds: seconds,
                         nonce: ValueNotifier<int>(0),
+                        pressForward: ValueNotifier<bool>(true),
                         animate: true,
                       ),
                     ),
