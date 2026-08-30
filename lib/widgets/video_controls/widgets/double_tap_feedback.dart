@@ -88,8 +88,9 @@ class DoubleTapFeedback extends StatefulWidget {
   /// discontinuity to cover and every press in a burst can safely replay it.
   static const double _pulseScale = 0.18;
 
-  static const Duration _slideDuration = Duration(milliseconds: 1800);
-  static const Duration _pulseDuration = Duration(milliseconds: 600);
+  static const Duration _slideDuration = Duration(milliseconds: 3600);
+  static const Duration _pulseDuration = Duration(milliseconds: 1200);
+  static const Duration _fadeInDuration = Duration(milliseconds: 400);
 
   /// Fixed minimum so the digit count changing (e.g. "5s" -> "15s") doesn't
   /// reflow the row and shift the number; it just grows away from the chevron.
@@ -116,10 +117,16 @@ class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with TickerProvid
   late final AnimationController _slide;
   late final Animation<double> _slideCurve;
 
-  /// 0 → 1 per press; the pulse is (1 - value), so scale starts at +12% and
+  /// 0 → 1 per press; the pulse is (1 - value), so scale starts at +18% and
   /// settles back to rest.
   late final AnimationController _pulse;
   late final Animation<double> _pulseCurve;
+
+  /// Entrance fade. The parent's AnimatedOpacity only animates when this
+  /// widget survives a re-show — on first insertion it would render at full
+  /// opacity instantly, which reads as the chevron just appearing.
+  late final AnimationController _fadeIn;
+  late final Animation<double> _fadeInCurve;
 
   bool _shownForward = false;
 
@@ -130,6 +137,8 @@ class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with TickerProvid
     _slideCurve = CurvedAnimation(parent: _slide, curve: Curves.easeInOutSine);
     _pulse = AnimationController(vsync: this, duration: DoubleTapFeedback._pulseDuration);
     _pulseCurve = CurvedAnimation(parent: _pulse, curve: Curves.linear);
+    _fadeIn = AnimationController(vsync: this, duration: DoubleTapFeedback._fadeInDuration);
+    _fadeInCurve = CurvedAnimation(parent: _fadeIn, curve: Curves.easeOut);
     _shownForward = widget.isForward;
     widget.nonce.addListener(_onPress);
     if (widget.animate) _onArrival(fresh: true);
@@ -138,7 +147,13 @@ class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with TickerProvid
   @override
   void didUpdateWidget(DoubleTapFeedback oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!oldWidget.animate && widget.animate) _onArrival(fresh: true);
+    // The nonce listener runs before the parent rebuilds, so a direction flip
+    // still carries the old isForward there and cannot see the flip. The
+    // rebuild is where the flip becomes knowable: replay that side's whole
+    // arrival — slide from its own inward origin plus the entrance fade.
+    if (oldWidget.isForward != widget.isForward || (!oldWidget.animate && widget.animate)) {
+      _onArrival(fresh: true);
+    }
   }
 
   @override
@@ -146,15 +161,18 @@ class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with TickerProvid
     widget.nonce.removeListener(_onPress);
     _slide.dispose();
     _pulse.dispose();
+    _fadeIn.dispose();
     super.dispose();
   }
 
-  /// A press on a freshly arrived (or flipped) chevron plays the full slide;
-  /// one on an already-gliding chevron just extends the same glide.
+  /// A fresh arrival plays that side's full entrance: fade in from nothing,
+  /// slide from its inward origin. A repeat press on the same side instead
+  /// extends the current glide and pops the pulse — no fade replay.
   void _onArrival({required bool fresh}) {
     if (fresh || _shownForward != widget.isForward) {
       _shownForward = widget.isForward;
       _slide.value = 0;
+      _fadeIn.forward(from: 0);
     }
     _slide.forward();
   }
@@ -201,34 +219,37 @@ class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with TickerProvid
           alignment: isForward ? Alignment.centerRight : Alignment.centerLeft,
           child: Padding(
             padding: EdgeInsets.symmetric(horizontal: DoubleTapFeedback._horizontalInset(context)),
-            child: Row(
-              mainAxisSize: .min,
-              children: [
-                // Chevron leads on the side the seek travels toward.
-                if (!isForward) ...[_buildChevron(context, chevronHeight), const SizedBox(width: 8)],
-                ValueListenableBuilder<int>(
-                  valueListenable: widget.seconds,
-                  builder: (context, seconds, _) {
-                    // The amount is also the live-region leaf. Keeping the listener
-                    // here updates text and semantics without rebuilding the chevron.
-                    return Semantics(
-                      container: true,
-                      liveRegion: true,
-                      excludeSemantics: true,
-                      label: isForward
-                          ? t.videoControls.seekForwardButton(seconds: seconds)
-                          : t.videoControls.seekBackwardButton(seconds: seconds),
-                      child: _OutlinedAmountLabel(
-                        label: formatSkipFeedbackLabel(seconds),
-                        style: amountStyle,
-                        devicePixelRatio: dpr,
-                        growTowardChevron: !isForward,
-                      ),
-                    );
-                  },
-                ),
-                if (isForward) ...[const SizedBox(width: 8), _buildChevron(context, chevronHeight)],
-              ],
+            child: FadeTransition(
+              opacity: _fadeInCurve,
+              child: Row(
+                mainAxisSize: .min,
+                children: [
+                  // Chevron leads on the side the seek travels toward.
+                  if (!isForward) ...[_buildChevron(context, chevronHeight), const SizedBox(width: 8)],
+                  ValueListenableBuilder<int>(
+                    valueListenable: widget.seconds,
+                    builder: (context, seconds, _) {
+                      // The amount is also the live-region leaf. Keeping the listener
+                      // here updates text and semantics without rebuilding the chevron.
+                      return Semantics(
+                        container: true,
+                        liveRegion: true,
+                        excludeSemantics: true,
+                        label: isForward
+                            ? t.videoControls.seekForwardButton(seconds: seconds)
+                            : t.videoControls.seekBackwardButton(seconds: seconds),
+                        child: _OutlinedAmountLabel(
+                          label: formatSkipFeedbackLabel(seconds),
+                          style: amountStyle,
+                          devicePixelRatio: dpr,
+                          growTowardChevron: !isForward,
+                        ),
+                      );
+                    },
+                  ),
+                  if (isForward) ...[const SizedBox(width: 8), _buildChevron(context, chevronHeight)],
+                ],
+              ),
             ),
           ),
         );
