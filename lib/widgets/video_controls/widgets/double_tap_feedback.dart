@@ -80,14 +80,16 @@ class DoubleTapFeedback extends StatefulWidget {
 
   /// The chevron slides from this far inward out to its laid-out resting spot.
   /// Travel runs inward → 0 and never past 0, so it can't walk off the edge.
-  static const double _slideDistance = 40;
+  /// Long enough that the glide reads as travel at TV viewing distance — a
+  /// 40 dp drift with a decelerate curve reads as a flick, not a slide.
+  static const double _slideDistance = 96;
 
   /// Per-press accent. Starts and ends at rest, so re-firing mid-flight has no
   /// discontinuity to cover and every press in a burst can safely replay it.
   static const double _pulseScale = 0.18;
 
   static const Duration _slideDuration = Duration(milliseconds: 1600);
-  static const Duration _pulseDuration = Duration(milliseconds: 400);
+  static const Duration _pulseDuration = Duration(milliseconds: 600);
 
   /// Fixed minimum so the digit count changing (e.g. "5s" -> "15s") doesn't
   /// reflow the row and shift the number; it just grows away from the chevron.
@@ -125,9 +127,9 @@ class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with TickerProvid
   void initState() {
     super.initState();
     _slide = AnimationController(vsync: this, duration: DoubleTapFeedback._slideDuration);
-    _slideCurve = CurvedAnimation(parent: _slide, curve: Curves.easeOut);
+    _slideCurve = CurvedAnimation(parent: _slide, curve: Curves.easeOutSine);
     _pulse = AnimationController(vsync: this, duration: DoubleTapFeedback._pulseDuration);
-    _pulseCurve = CurvedAnimation(parent: _pulse, curve: Curves.fastOutSlowIn);
+    _pulseCurve = CurvedAnimation(parent: _pulse, curve: Curves.linear);
     _shownForward = widget.isForward;
     widget.nonce.addListener(_onPress);
     if (widget.animate) _onArrival(fresh: true);
