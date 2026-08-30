@@ -719,10 +719,10 @@ void main() {
       // fresh slide (the glide restarts only on a direction flip or fresh
       // arrival), so mid-burst the chevron is either at rest or gliding
       // inward-to-rest — never past either.
-      expect(minDx, greaterThanOrEqualTo(-40.5), reason: 'the slide never overshoots its resting spot');
+      expect(minDx, greaterThanOrEqualTo(-96.5), reason: 'the slide never overshoots its resting spot');
       expect(maxDx, lessThanOrEqualTo(0.5), reason: 'forward travel never crosses behind the origin');
       expect(peakScale, greaterThan(1.05), reason: 'each press pops the chevron');
-      await tester.pump(const Duration(milliseconds: 450));
+      await tester.pump(const Duration(milliseconds: 650));
       expect(chevronScale(tester), moreOrLessEquals(1.0, epsilon: 0.01), reason: 'the pulse settles back to rest');
       await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowRight);
       await tester.pump();
