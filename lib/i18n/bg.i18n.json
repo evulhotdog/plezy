@@ -2101,7 +2101,20 @@
       "anilist": "AniList",
       "simkl": "Simkl",
       "seerr": "Seerr",
+      "theIntroDb": "",
       "mdblist": "MDBList"
+    },
+    "theIntroDb": {
+      "title": "",
+      "subtitle": "",
+      "apiKey": "",
+      "apiKeyHint": "",
+      "publicAccess": "",
+      "testConnection": "",
+      "connectionSuccess": "",
+      "connectionFailed": "",
+      "infoText": "",
+      "getKeyInfo": ""
     },
     "deviceCode": {
       "title": "Активиране на Plezy в ${service}",
