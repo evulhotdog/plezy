@@ -40,6 +40,12 @@ class DoubleTapFeedback extends StatefulWidget {
   /// rebuilding this widget, so the nonce is what lets each press replay the
   /// pulse and extend the glide.
   final ValueListenable<int> nonce;
+
+  /// The press's own direction, written before [nonce] fires. The widget's
+  /// [isForward] is stale until the parent rebuilds, so this is what tells a
+  /// flip (entrance replay, no pop) from a same-side repeat (pop).
+  final ValueListenable<bool> pressForward;
+
   final bool animate;
 
   const DoubleTapFeedback({
@@ -47,6 +53,7 @@ class DoubleTapFeedback extends StatefulWidget {
     required this.isForward,
     required this.seconds,
     required this.nonce,
+    required this.pressForward,
     required this.animate,
   });
 
@@ -136,6 +143,9 @@ class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with TickerProvid
     _slide = AnimationController(vsync: this, duration: DoubleTapFeedback._slideDuration);
     _slideCurve = CurvedAnimation(parent: _slide, curve: Curves.easeInOutSine);
     _pulse = AnimationController(vsync: this, duration: DoubleTapFeedback._pulseDuration);
+    // Rest = fully settled (scale 1.0). A fresh arrival must not inherit the
+    // popped size just because no pulse has run yet.
+    _pulse.value = 1.0;
     _pulseCurve = CurvedAnimation(parent: _pulse, curve: Curves.linear);
     _fadeIn = AnimationController(vsync: this, duration: DoubleTapFeedback._fadeInDuration);
     _fadeInCurve = CurvedAnimation(parent: _fadeIn, curve: Curves.easeOut);
@@ -150,8 +160,11 @@ class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with TickerProvid
     // The nonce listener runs before the parent rebuilds, so a direction flip
     // still carries the old isForward there and cannot see the flip. The
     // rebuild is where the flip becomes knowable: replay that side's whole
-    // arrival — slide from its own inward origin plus the entrance fade.
-    if (oldWidget.isForward != widget.isForward || (!oldWidget.animate && widget.animate)) {
+    // arrival — slide from its own inward origin plus the entrance fade, with
+    // no pop. A same-side re-raise mid-fade is a repeat press: _onPress
+    // already extended the glide and popped; the parent raising opacity
+    // brings the readout back.
+    if (oldWidget.isForward != widget.isForward) {
       _onArrival(fresh: true);
     }
   }
@@ -179,7 +192,12 @@ class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with TickerProvid
 
   void _onPress() {
     if (!mounted || !widget.animate) return;
-    _onArrival(fresh: false);
+    // The widget's isForward is stale until the parent rebuilds; the press's
+    // own direction arrives through [DoubleTapFeedback.pressForward] before
+    // the nonce fires. A flip resolves at didUpdateWidget as a full entrance
+    // (fade + slide, no pop); only a same-side press on a showing readout pops.
+    if (widget.pressForward.value != _shownForward) return;
+    _slide.forward();
     _pulse.forward(from: 0);
   }
 
