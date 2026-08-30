@@ -701,8 +701,8 @@ void main() {
       expect(chevronDx(tester), lessThan(-0.01), reason: 'arrives displaced toward the centre');
       expect(badgeTargetOpacity(tester), 1.0, reason: 'the badge holds while the burst continues');
 
-      await tester.pump(const Duration(milliseconds: 1100));
-      expect(chevronDx(tester), moreOrLessEquals(0.0, epsilon: 0.5), reason: 'settles at its resting spot');
+      await tester.pump(const Duration(milliseconds: 900));
+      expect(chevronDx(tester), lessThan(-1.0), reason: 'still gliding inward — the slide is unhurried');
 
       var peakScale = 1.0;
       var minDx = 0.0;
@@ -722,10 +722,13 @@ void main() {
       expect(minDx, greaterThanOrEqualTo(-40.5), reason: 'the slide never overshoots its resting spot');
       expect(maxDx, lessThanOrEqualTo(0.5), reason: 'forward travel never crosses behind the origin');
       expect(peakScale, greaterThan(1.05), reason: 'each press pops the chevron');
-      await tester.pump(const Duration(milliseconds: 260));
+      await tester.pump(const Duration(milliseconds: 450));
       expect(chevronScale(tester), moreOrLessEquals(1.0, epsilon: 0.01), reason: 'the pulse settles back to rest');
       await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowRight);
       await tester.pump();
+      // The burst dismissed, the readout comes all the way down.
+      await tester.pump(const Duration(milliseconds: 2000));
+      expect(find.byType(DoubleTapFeedback), findsNothing);
 
       await settleFeedback(tester);
     });
