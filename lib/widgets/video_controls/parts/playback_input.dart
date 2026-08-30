@@ -649,6 +649,7 @@ extension _PlexVideoControlsPlaybackInputMethods on _PlexVideoControlsState {
   void _registerSkipFeedback({required bool isForward, required int seconds}) {
     final stacking = _showDoubleTapFeedback && _lastDoubleTapWasForward == isForward;
     _accumulatedSkipSeconds.value = stacking ? _accumulatedSkipSeconds.value + seconds : seconds;
+    _skipFeedbackNonce.value++;
     _showSkipFeedback(isForward: isForward);
   }
 
