@@ -88,7 +88,7 @@ class DoubleTapFeedback extends StatefulWidget {
   /// discontinuity to cover and every press in a burst can safely replay it.
   static const double _pulseScale = 0.18;
 
-  static const Duration _slideDuration = Duration(milliseconds: 1600);
+  static const Duration _slideDuration = Duration(milliseconds: 1800);
   static const Duration _pulseDuration = Duration(milliseconds: 600);
 
   /// Fixed minimum so the digit count changing (e.g. "5s" -> "15s") doesn't
@@ -127,7 +127,7 @@ class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with TickerProvid
   void initState() {
     super.initState();
     _slide = AnimationController(vsync: this, duration: DoubleTapFeedback._slideDuration);
-    _slideCurve = CurvedAnimation(parent: _slide, curve: Curves.easeOutSine);
+    _slideCurve = CurvedAnimation(parent: _slide, curve: Curves.easeInOutSine);
     _pulse = AnimationController(vsync: this, duration: DoubleTapFeedback._pulseDuration);
     _pulseCurve = CurvedAnimation(parent: _pulse, curve: Curves.linear);
     _shownForward = widget.isForward;
