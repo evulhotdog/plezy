@@ -95,9 +95,13 @@ class DoubleTapFeedback extends StatefulWidget {
   /// discontinuity to cover and every press in a burst can safely replay it.
   static const double _pulseScale = 0.18;
 
+  /// Entrance fade: the controller runs 1000 ms, but the visible fade occupies
+  /// only its last 700 ms — the chevron stays transparent for the first 300 ms
+  /// so the slide is under way before the glyphs arrive.
+  static const Duration _fadeInDuration = Duration(milliseconds: 1000);
+  static const Curve _fadeInCurveShape = Interval(0.3, 1.0, curve: Curves.easeOut);
   static const Duration _slideDuration = Duration(milliseconds: 3600);
   static const Duration _pulseDuration = Duration(milliseconds: 1200);
-  static const Duration _fadeInDuration = Duration(milliseconds: 400);
 
   /// Fixed minimum so the digit count changing (e.g. "5s" -> "15s") doesn't
   /// reflow the row and shift the number; it just grows away from the chevron.
@@ -148,7 +152,7 @@ class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with TickerProvid
     _pulse.value = 1.0;
     _pulseCurve = CurvedAnimation(parent: _pulse, curve: Curves.linear);
     _fadeIn = AnimationController(vsync: this, duration: DoubleTapFeedback._fadeInDuration);
-    _fadeInCurve = CurvedAnimation(parent: _fadeIn, curve: Curves.easeOut);
+    _fadeInCurve = CurvedAnimation(parent: _fadeIn, curve: DoubleTapFeedback._fadeInCurveShape);
     _shownForward = widget.isForward;
     widget.nonce.addListener(_onPress);
     if (widget.animate) _onArrival(fresh: true);
