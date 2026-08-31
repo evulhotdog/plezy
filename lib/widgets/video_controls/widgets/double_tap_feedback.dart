@@ -103,8 +103,15 @@ class DoubleTapFeedback extends StatefulWidget {
   /// "it's just appearing" review. A steady ramp is what reads as a fade.
   static const Duration _fadeInDuration = Duration(milliseconds: 1200);
   static const Curve _fadeInCurveShape = Interval(0.35, 1.0, curve: Curves.linear);
-  static const Duration _slideDuration = Duration(milliseconds: 3600);
+  static const Duration _slideDuration = Duration(milliseconds: 1800);
   static const Duration _pulseDuration = Duration(milliseconds: 1200);
+
+  /// Position gate for the chevron's own fade, in slide-progress fractions.
+  /// The inward displacement (96 dp) is wider than the number's slot, so the
+  /// chevron overlaps the number until roughly 62% of the travel; past that
+  /// it fades in over the next third and rests fully visible.
+  static const double _chevronFadeStart = 0.62;
+  static const double _chevronFadeEnd = 0.92;
 
   /// Fixed minimum so the digit count changing (e.g. "5s" -> "15s") doesn't
   /// reflow the row and shift the number; it just grows away from the chevron.
@@ -136,9 +143,9 @@ class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with TickerProvid
   late final AnimationController _pulse;
   late final Animation<double> _pulseCurve;
 
-  /// Entrance fade. The parent's AnimatedOpacity only animates when this
-  /// widget survives a re-show — on first insertion it would render at full
-  /// opacity instantly, which reads as the chevron just appearing.
+  /// Entrance fade for the NUMBER. The chevron is not part of this fade: it
+  /// starts its slide on top of the number's slot, so its visibility is
+  /// position-gated instead — see _buildChevron.
   late final AnimationController _fadeIn;
   late final Animation<double> _fadeInCurve;
 
@@ -213,12 +220,27 @@ class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with TickerProvid
     return AnimatedBuilder(
       animation: Listenable.merge([_slideCurve, _pulseCurve]),
       builder: (context, child) {
-        final inward = (widget.isForward ? -1.0 : 1.0) * DoubleTapFeedback._slideDistance * (1 - _slideCurve.value);
+        final progress = _slideCurve.value;
+        final inward = (widget.isForward ? -1.0 : 1.0) * DoubleTapFeedback._slideDistance * (1 - progress);
         final scale = 1 + (1 - _pulseCurve.value) * DoubleTapFeedback._pulseScale;
-        return Transform.translate(
-          key: const ValueKey('seekChevronSlide'),
-          offset: Offset(inward, 0),
-          child: Transform.scale(key: const ValueKey('seekChevronPulse'), scale: scale, child: child),
+        // The chevron begins its slide on top of the number's slot (the
+        // inward displacement is wider than the number is), so its fade is
+        // driven by POSITION, not the clock: it stays invisible while it
+        // overlaps the number and fades in with a steady ramp only once it
+        // has physically slid past it. Fully visible just before the slide
+        // comes to rest.
+        final opacity =
+            ((progress - DoubleTapFeedback._chevronFadeStart) /
+                    (DoubleTapFeedback._chevronFadeEnd - DoubleTapFeedback._chevronFadeStart))
+                .clamp(0.0, 1.0);
+        return Opacity(
+          key: const ValueKey('seekChevronOpacity'),
+          opacity: opacity,
+          child: Transform.translate(
+            key: const ValueKey('seekChevronSlide'),
+            offset: Offset(inward, 0),
+            child: Transform.scale(key: const ValueKey('seekChevronPulse'), scale: scale, child: child),
+          ),
         );
       },
       child: CustomPaint(
@@ -245,14 +267,15 @@ class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with TickerProvid
           alignment: isForward ? Alignment.centerRight : Alignment.centerLeft,
           child: Padding(
             padding: EdgeInsets.symmetric(horizontal: DoubleTapFeedback._horizontalInset(context)),
-            child: FadeTransition(
-              opacity: _fadeInCurve,
-              child: Row(
-                mainAxisSize: .min,
-                children: [
-                  // Chevron leads on the side the seek travels toward.
-                  if (!isForward) ...[_buildChevron(context, chevronHeight), const SizedBox(width: 8)],
-                  ValueListenableBuilder<int>(
+            child: Row(
+              mainAxisSize: .min,
+              children: [
+                // Chevron leads on the side the seek travels toward. It fades
+                // on its own position-gated schedule, not the number's clock.
+                if (!isForward) ...[_buildChevron(context, chevronHeight), const SizedBox(width: 8)],
+                FadeTransition(
+                  opacity: _fadeInCurve,
+                  child: ValueListenableBuilder<int>(
                     valueListenable: widget.seconds,
                     builder: (context, seconds, _) {
                       // The amount is also the live-region leaf. Keeping the listener
@@ -273,9 +296,9 @@ class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with TickerProvid
                       );
                     },
                   ),
-                  if (isForward) ...[const SizedBox(width: 8), _buildChevron(context, chevronHeight)],
-                ],
-              ),
+                ),
+                if (isForward) ...[const SizedBox(width: 8), _buildChevron(context, chevronHeight)],
+              ],
             ),
           ),
         );
