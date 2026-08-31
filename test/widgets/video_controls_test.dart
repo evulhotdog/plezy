@@ -1036,7 +1036,19 @@ void main() {
         onActivate: () => activateCount++,
       );
 
-      expect(find.text('${t.videoControls.skipIntro} (3)'), findsOneWidget);
+      expect(
+        find.text(t.videoControls.skipIntro),
+        findsOneWidget,
+        reason: 'the countdown number is gone; the fill carries the timer',
+      );
+      double fillFactor(WidgetTester tester) => tester
+          .widget<FractionallySizedBox>(
+            find.descendant(of: find.byType(SkipMarkerButton), matching: find.byType(FractionallySizedBox)),
+          )
+          .widthFactor!;
+      expect(fillFactor(tester), moreOrLessEquals(0.4, epsilon: 0.01), reason: 'fill anchored at the last timer tick');
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(fillFactor(tester), greaterThan(0.4), reason: 'the fill advances on the frame clock between ticks');
 
       await tester.tap(find.byType(InkWell));
       await tester.pump();
@@ -1100,6 +1112,7 @@ void main() {
       );
 
       expect(find.text(t.videoControls.skipIntro), findsOneWidget);
+      expect(find.byType(FractionallySizedBox), findsNothing, reason: 'no fill when the countdown is not running');
 
       await tester.tap(find.byType(InkWell));
       await tester.pump();
