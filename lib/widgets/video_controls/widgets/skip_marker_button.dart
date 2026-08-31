@@ -83,10 +83,22 @@ class _SkipMarkerButtonState extends State<SkipMarkerButton> with SingleTickerPr
   }
 
   void _syncFill() {
-    final remainingMs = (widget.autoSkipDelay * (1 - widget.autoSkipProgress) * 1000).round();
+    final p = widget.autoSkipProgress.clamp(0.0, 1.0);
+    final remainingFraction = 1.0 - p;
+    if (remainingFraction <= 0.0) {
+      _fill.value = p;
+      return;
+    }
+    // AnimationController.forward(from:) trims its duration by the remaining
+    // fraction (duration x (1 - p)), so the requested duration is pre-inflated
+    // to make the effective sweep exactly the remaining wall-clock time and
+    // the fill converge to full when the auto-skip fires. At the untrimmed
+    // duration the controller outpaces the countdown and every timer tick
+    // snaps the overshoot back - a repeated fast fill instead of one sweep.
+    final totalMs = widget.autoSkipDelay * remainingFraction * 1000;
     _fill
-      ..duration = Duration(milliseconds: remainingMs)
-      ..forward(from: widget.autoSkipProgress.clamp(0.0, 1.0));
+      ..duration = Duration(milliseconds: (totalMs / remainingFraction).round())
+      ..forward(from: p);
   }
 
   @override

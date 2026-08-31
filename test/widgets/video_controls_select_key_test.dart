@@ -400,7 +400,11 @@ void main() {
 
     Future<void> showPrompt(WidgetTester tester) async {
       player.emitPosition(const Duration(seconds: 15));
-      await tester.pumpAndSettle();
+      // Finite pumps: the fill keeps the button animating for as long as the
+      // countdown runs, so pumpAndSettle here would pump straight through the
+      // 5 s countdown and into the auto-skip, unmounting the prompt.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
       expect(find.byType(SkipMarkerButton), findsOneWidget, reason: 'precondition: the prompt is up');
     }
 
@@ -479,7 +483,7 @@ void main() {
     playerTest('the chrome owns a press that starts under it', markers: [introMarker], (tester) async {
       await showPrompt(tester);
       chrome.show();
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 300));
 
       await press(tester, LogicalKeyboardKey.gameButtonB);
 
@@ -508,9 +512,9 @@ void main() {
       await tester.sendKeyDownEvent(LogicalKeyboardKey.gameButtonB);
       await tester.pump();
       chrome.show();
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.sendKeyUpEvent(LogicalKeyboardKey.gameButtonB);
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 300));
 
       expect(screenBackDispositions, [
         PlayerBackDisposition.hideControls,
@@ -549,7 +553,11 @@ void main() {
       (tester) async {
         InputModeTracker.reportNonPointerInput();
         player.emitPosition(const Duration(seconds: 15));
-        await tester.pumpAndSettle();
+        // Finite pumps: the fill animates for as long as the countdown runs,
+        // so pumpAndSettle would pump through the auto-skip and unmount the
+        // prompt before the precondition reads.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
         expect(focusLabel(), 'SkipMarkerButton', reason: 'precondition: TV autofocuses the sole affordance');
 
         await press(tester, LogicalKeyboardKey.gameButtonB);
@@ -584,8 +592,10 @@ void main() {
         // skip button on TV.
         InputModeTracker.reportNonPointerInput();
         player.emitPosition(const Duration(seconds: 15));
-        await tester.pumpAndSettle();
-        expect(focusLabel(), 'SkipMarkerButton', reason: 'precondition: TV autofocuses the sole affordance');
+        // Finite pumps: see the declining-group note - pumpAndSettle would
+        // pump through the countdown into the auto-skip.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
 
         await press(tester, LogicalKeyboardKey.select);
 
