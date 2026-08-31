@@ -185,6 +185,22 @@ class _PlaybackSettingsScreenState extends State<PlaybackSettingsScreen> {
         min: 0,
         max: 10,
       ),
+      SettingSwitchTile(
+        pref: SettingsService.tempSubtitlesOnRewind,
+        icon: Symbols.subtitles_rounded,
+        title: t.settings.tempSubtitlesOnRewind,
+        subtitle: t.settings.tempSubtitlesOnRewindDescription,
+      ),
+      SettingValueBuilder<bool>(
+        pref: SettingsService.tempSubtitlesOnRewind,
+        builder: (context, enabled, _) => SettingSwitchTile(
+          pref: SettingsService.tempSubtitlesAnchorMoves,
+          icon: Symbols.restart_alt_rounded,
+          title: t.settings.tempSubtitlesAnchorMoves,
+          subtitle: t.settings.tempSubtitlesAnchorMovesDescription,
+          enabled: enabled,
+        ),
+      ),
       SettingNumberTile(
         pref: SettingsService.sleepTimerDuration,
         icon: Symbols.bedtime_rounded,

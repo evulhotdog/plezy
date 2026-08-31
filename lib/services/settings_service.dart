@@ -440,6 +440,16 @@ class SettingsService extends BaseSharedPreferencesService {
   static const seekTimeSmall = IntPref('seek_time_small', defaultValue: 10);
   static const seekTimeLarge = IntPref('seek_time_large', defaultValue: 30);
   static const rewindOnResume = IntPref('rewind_on_resume');
+
+  /// Rewind-time temporary subtitles: a left-D-pad skip with the chrome
+  /// hidden shows subtitles over the rewound span and reverts when playback
+  /// returns to the press point.
+  static const tempSubtitlesOnRewind = BoolPref('temp_subtitles_on_rewind');
+
+  /// When on, each additional discrete skip-back press moves the revert
+  /// point to that press; when off the window stays anchored to the
+  /// original press.
+  static const tempSubtitlesAnchorMoves = BoolPref('temp_subtitles_anchor_moves');
   static const showHeroSection = BoolPref('show_hero_section', defaultValue: true);
   static const tvFullCardLayout = BoolPref('tv_full_card_layout', defaultValue: false);
   static const focusGlow = BoolPref('focus_glow', defaultValue: true);
@@ -1093,6 +1103,8 @@ class SettingsService extends BaseSharedPreferencesService {
     viewMode,
     seekTimeSmall,
     seekTimeLarge,
+    tempSubtitlesOnRewind,
+    tempSubtitlesAnchorMoves,
     showHeroSection,
     sleepTimerDuration,
     audioSyncOffset,

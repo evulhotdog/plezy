@@ -134,6 +134,7 @@ extension _PlexVideoControlsNavigationMethods on _PlexVideoControlsState {
 
       if (!targetIsCurrent()) return SubtitleDownloadApplyOutcome.superseded;
       if (newTrack == null) return SubtitleDownloadApplyOutcome.timedOut;
+      _cancelRewindSubtitles();
       final outcome = await switchSource(newSubtitleChoice: PlaybackSourceSubtitleChoice.source(newTrack.id));
       return subtitleDownloadApplyOutcomeFor(outcome);
     } catch (e) {
@@ -153,6 +154,7 @@ extension _PlexVideoControlsNavigationMethods on _PlexVideoControlsState {
   }) async {
     final onPlaybackSourceChanged = widget.onPlaybackSourceChanged;
     if (onPlaybackSourceChanged == null) return;
+    _cancelRewindSubtitles();
     try {
       await onPlaybackSourceChanged(
         newMediaIndex: newMediaIndex,

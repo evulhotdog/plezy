@@ -70,6 +70,9 @@ extension _PlexVideoControlsPlaybackInputMethods on _PlexVideoControlsState {
     final multiplier = isRepeat ? steppedSeekMultiplier(_hiddenSeekRepeatCount) : 1.0;
 
     final stepMs = (_seekTimeSmall * 1000 * multiplier).clamp(500, 120_000).toInt();
+    // A discrete left press opens (or re-anchors) the rewind-subtitles
+    // window, anchored to the pre-seek press position.
+    if (!forward && !isRepeat) _onRewindSkipPress();
     _seekByWithFeedback(Duration(milliseconds: forward ? stepMs : -stepMs));
   }
 
