@@ -101,7 +101,7 @@ class DoubleTapFeedback extends StatefulWidget {
   /// fade itself is LINEAR: an ease-out ramp hits two-thirds opacity in the
   /// first third of the fade and reads as a pop-in, which is exactly the
   /// "it's just appearing" review. A steady ramp is what reads as a fade.
-  static const Duration _fadeInDuration = Duration(milliseconds: 2400);
+  static const Duration _fadeInDuration = Duration(milliseconds: 1200);
   static const Curve _fadeInCurveShape = Interval(0.35, 1.0, curve: Curves.linear);
   static const Duration _slideDuration = Duration(milliseconds: 8000);
   static const Duration _pulseDuration = Duration(milliseconds: 1200);

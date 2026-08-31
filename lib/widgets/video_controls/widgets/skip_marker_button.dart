@@ -161,6 +161,10 @@ class _SkipMarkerButtonState extends State<SkipMarkerButton> with SingleTickerPr
                           alignment: AlignmentDirectional.centerStart,
                           child: FractionallySizedBox(
                             widthFactor: _fill.value.clamp(0.0, 1.0),
+                            // heightFactor 1: widthFactor alone leaves the
+                            // height loose and a childless ColoredBox would
+                            // collapse to zero height - an invisible fill.
+                            heightFactor: 1.0,
                             // Silo's fill is white-on-black; mirrored polarity
                             // for this white pill: a subtle black sweep.
                             child: const ColoredBox(color: Color(0x1F000000)),
