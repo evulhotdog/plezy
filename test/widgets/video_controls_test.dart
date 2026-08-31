@@ -1041,14 +1041,25 @@ void main() {
         findsOneWidget,
         reason: 'the countdown number is gone; the fill carries the timer',
       );
-      double fillFactor(WidgetTester tester) => tester
-          .widget<FractionallySizedBox>(
-            find.descendant(of: find.byType(SkipMarkerButton), matching: find.byType(FractionallySizedBox)),
-          )
-          .widthFactor!;
-      expect(fillFactor(tester), moreOrLessEquals(0.4, epsilon: 0.01), reason: 'fill anchored at the last timer tick');
+      Rect fillRect(WidgetTester tester) =>
+          tester.getRect(find.descendant(of: find.byType(SkipMarkerButton), matching: find.byType(ColoredBox)));
+      final pillRect = tester.getRect(find.descendant(of: find.byType(SkipMarkerButton), matching: find.byType(Stack)));
+      expect(
+        fillRect(tester).height,
+        moreOrLessEquals(pillRect.height, epsilon: 0.5),
+        reason: 'the fill spans the full pill height - widthFactor alone collapses to zero height',
+      );
+      expect(
+        fillRect(tester).width,
+        moreOrLessEquals(pillRect.width * 0.4, epsilon: 0.5),
+        reason: 'fill anchored at the last timer tick',
+      );
       await tester.pump(const Duration(milliseconds: 600));
-      expect(fillFactor(tester), greaterThan(0.4), reason: 'the fill advances on the frame clock between ticks');
+      expect(
+        fillRect(tester).width,
+        greaterThan(pillRect.width * 0.4),
+        reason: 'the fill advances on the frame clock between ticks',
+      );
 
       await tester.tap(find.byType(InkWell));
       await tester.pump();
