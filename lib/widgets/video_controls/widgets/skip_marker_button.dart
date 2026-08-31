@@ -8,7 +8,12 @@ import '../../../media/media_source_info.dart';
 import '../../../theme/mono_tokens.dart';
 import '../../app_icon.dart';
 
-class SkipMarkerButton extends StatelessWidget {
+/// The "Skip Intro"/"Skip Credits" pill. Ported from silo-android's
+/// `tv-skip-intro-shrinking-fill` branch: instead of a countdown number, the
+/// button's own background carries the timer - a fill sweeping left-to-right
+/// that lands full exactly as the auto-skip fires, then the button either
+/// skips or reverts to the plain pill.
+class SkipMarkerButton extends StatefulWidget {
   final MediaMarker marker;
   final Duration playerDuration;
   final bool hasNextEpisode;
@@ -35,11 +40,63 @@ class SkipMarkerButton extends StatelessWidget {
   });
 
   @override
+  State<SkipMarkerButton> createState() => _SkipMarkerButtonState();
+}
+
+class _SkipMarkerButtonState extends State<SkipMarkerButton> with SingleTickerProviderStateMixin {
+  /// The countdown fill. Driven by the frame clock (vsync), re-anchored from
+  /// the quantized countdown timer on every tick: the controller interpolates
+  /// from the last known progress to 1.0 over the remaining wall-clock time,
+  /// so the sweep is smooth and converges precisely when the auto-skip fires -
+  /// the same scheme as silo's `withFrameMillis` fill.
+  late final AnimationController _fill = AnimationController(vsync: this);
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isAutoSkipActive && widget.shouldShowAutoSkip) {
+      _syncFill();
+    }
+  }
+
+  @override
+  void didUpdateWidget(SkipMarkerButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isAutoSkipActive && widget.shouldShowAutoSkip) {
+      // Re-anchor whenever the countdown timer advances; also covers becoming
+      // active with an unchanged (zero) progress.
+      if (widget.autoSkipProgress != oldWidget.autoSkipProgress ||
+          !(oldWidget.isAutoSkipActive && oldWidget.shouldShowAutoSkip)) {
+        _syncFill();
+      }
+    } else if (_fill.isAnimating) {
+      // Countdown stopped (pause, user interaction): the fill hides with the
+      // overlay and re-anchors from zero if the countdown resumes.
+      _fill.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _fill.dispose();
+    super.dispose();
+  }
+
+  void _syncFill() {
+    final remainingMs = (widget.autoSkipDelay * (1 - widget.autoSkipProgress) * 1000).round();
+    _fill
+      ..duration = Duration(milliseconds: remainingMs)
+      ..forward(from: widget.autoSkipProgress.clamp(0.0, 1.0));
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final isCredits = marker.isCredits;
+    final isCredits = widget.marker.isCredits;
     final creditsAtEnd =
-        isCredits && playerDuration > Duration.zero && (playerDuration - marker.endTime).inMilliseconds <= 1000;
-    final showNextEpisode = creditsAtEnd && hasNextEpisode;
+        isCredits &&
+        widget.playerDuration > Duration.zero &&
+        (widget.playerDuration - widget.marker.endTime).inMilliseconds <= 1000;
+    final showNextEpisode = creditsAtEnd && widget.hasNextEpisode;
     String baseButtonText;
     if (showNextEpisode) {
       baseButtonText = t.videoControls.nextEpisode;
@@ -49,25 +106,18 @@ class SkipMarkerButton extends StatelessWidget {
       baseButtonText = t.videoControls.skipIntro;
     }
 
-    final remainingSeconds = isAutoSkipActive && shouldShowAutoSkip
-        ? (autoSkipDelay - (autoSkipProgress * autoSkipDelay)).ceil().clamp(0, autoSkipDelay)
-        : 0;
-
-    final showAutoSkipCountdown = isAutoSkipActive && shouldShowAutoSkip;
-    final buttonText = showAutoSkipCountdown && remainingSeconds > 0
-        ? '$baseButtonText ($remainingSeconds)'
-        : baseButtonText;
     final buttonIcon = showNextEpisode ? Symbols.skip_next_rounded : Symbols.fast_forward_rounded;
+    final showFill = widget.isAutoSkipActive && widget.shouldShowAutoSkip;
 
     return FocusableWrapper(
-      focusNode: focusNode,
+      focusNode: widget.focusNode,
       onSelect: _activate,
       borderRadius: tokens(context).radiusSm,
       useBackgroundFocus: true,
       autoScroll: false,
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.arrowDown) {
-          onFocusDown();
+          widget.onFocusDown();
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
@@ -92,7 +142,7 @@ class SkipMarkerButton extends StatelessWidget {
                   mainAxisSize: .min,
                   children: [
                     Text(
-                      buttonText,
+                      baseButtonText,
                       style: const TextStyle(color: Colors.black, fontSize: 16, fontWeight: .w600),
                     ),
                     const SizedBox(width: 8),
@@ -100,26 +150,23 @@ class SkipMarkerButton extends StatelessWidget {
                   ],
                 ),
               ),
-              if (isAutoSkipActive && shouldShowAutoSkip)
+              if (showFill)
                 Positioned.fill(
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(tokens(context).radiusSm),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          flex: (autoSkipProgress * 100).round(),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(tokens(context).radiusSm),
-                            ),
+                    child: AnimatedBuilder(
+                      animation: _fill,
+                      builder: (context, _) {
+                        return Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: FractionallySizedBox(
+                            widthFactor: _fill.value.clamp(0.0, 1.0),
+                            // Silo's fill is white-on-black; mirrored polarity
+                            // for this white pill: a subtle black sweep.
+                            child: const ColoredBox(color: Color(0x1F000000)),
                           ),
-                        ),
-                        Expanded(
-                          flex: ((1.0 - autoSkipProgress) * 100).round(),
-                          child: Container(decoration: const BoxDecoration(color: Colors.transparent)),
-                        ),
-                      ],
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -130,5 +177,5 @@ class SkipMarkerButton extends StatelessWidget {
     );
   }
 
-  void _activate() => onActivate();
+  void _activate() => widget.onActivate();
 }
