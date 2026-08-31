@@ -715,9 +715,14 @@ extension _PlexVideoControlsPlaybackInputMethods on _PlexVideoControlsState {
   /// the value and keep skipping; Maestro builds hold it far longer because
   /// accessibility-tree queries on physical devices routinely outlast the
   /// production timeout — the same reason the chrome hide delay is extended.
+  ///
+  /// 2000 ms (not 1200): the entrance choreography — number fade, then the
+  /// chevron's position-gated fade completing as the slide comes to rest at
+  /// 1800 ms — must finish before the readout starts to fade out, or the
+  /// chevron is truncated mid-entrance (visible for only a few frames).
   Duration get _skipFeedbackDuration => const bool.fromEnvironment('PLEZY_MAESTRO_E2E')
       ? const Duration(seconds: 30)
-      : const Duration(milliseconds: 1200);
+      : const Duration(milliseconds: 2000);
   void _showSkipFeedback({required bool isForward, required bool alreadyVisible}) {
     // Reads `tokens(context)` below, so a caller reaching here after disposal
     // would touch a defunct element rather than merely no-op.

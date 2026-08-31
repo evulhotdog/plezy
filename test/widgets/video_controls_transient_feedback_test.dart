@@ -685,21 +685,28 @@ void main() {
 
       await tester.pump(const Duration(milliseconds: 500));
       expect(fadeIn(tester), lessThan(0.3), reason: 'the hold keeps it transparent while the slide starts');
-      // The chevron is still on top of the number's slot at this point: it
-      // must be fully invisible regardless of the number's own fade progress.
+      // The chevron is still on top of the number's slot: fully invisible
+      // regardless of the number's own fade progress.
       expect(chevronOpacity(tester), 0.0, reason: 'the chevron is position-gated, not clock-gated');
 
       await tester.pump(const Duration(milliseconds: 400));
       final midFade = fadeIn(tester);
       expect(midFade, greaterThan(0.1), reason: 'mid-fade it is partially visible');
       expect(midFade, lessThan(0.9), reason: 'and the ramp is steady, not a snap');
+      expect(chevronOpacity(tester), 0.0, reason: 'still short of the clear-of-number point');
 
       await tester.pump(const Duration(milliseconds: 250));
       expect(fadeIn(tester), moreOrLessEquals(1.0, epsilon: 0.1), reason: 'nearly settled as the entrance completes');
       // The chevron has only just cleared the number (~62% of travel); its own
       // fade is deliberately behind the number's.
-      expect(chevronOpacity(tester), lessThan(fadeIn(tester)), reason: 'the chevron trails the number');
       expect(chevronOpacity(tester), greaterThan(0.0), reason: 'but it is on its way in once past the number');
+      expect(chevronOpacity(tester), lessThan(fadeIn(tester)), reason: 'the chevron trails the number');
+
+      // The hold now outlasts the choreography: the glide reaches rest and the
+      // chevron arrives at full opacity before the readout starts to dismiss.
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(chevronOpacity(tester), 1.0, reason: 'fully visible once the glide comes to rest');
+
       await settleFeedback(tester);
     });
 
