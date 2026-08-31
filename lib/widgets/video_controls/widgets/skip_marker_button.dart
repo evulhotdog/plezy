@@ -49,7 +49,17 @@ class _SkipMarkerButtonState extends State<SkipMarkerButton> with SingleTickerPr
   /// from the last known progress to 1.0 over the remaining wall-clock time,
   /// so the sweep is smooth and converges precisely when the auto-skip fires -
   /// the same scheme as silo's `withFrameMillis` fill.
-  late final AnimationController _fill = AnimationController(vsync: this);
+  ///
+  /// `preserve` matters on devices that report animations disabled (several
+  /// Android TV boxes ship with window/transition animation scales at 0):
+  /// the default behavior then compresses every controller to 5% duration,
+  /// and this fill would machine-gun to full each tick instead of tracking
+  /// the countdown. The fill is a progress semantic, not decoration - it must
+  /// track wall-clock exactly like the timer that feeds it.
+  late final AnimationController _fill = AnimationController(
+    vsync: this,
+    animationBehavior: AnimationBehavior.preserve,
+  );
 
   @override
   void initState() {
@@ -177,9 +187,11 @@ class _SkipMarkerButtonState extends State<SkipMarkerButton> with SingleTickerPr
                             // height loose and a childless ColoredBox would
                             // collapse to zero height - an invisible fill.
                             heightFactor: 1.0,
-                            // Silo's fill is white-on-black; mirrored polarity
-                            // for this white pill: a subtle black sweep.
-                            child: const ColoredBox(color: Color(0x1F000000)),
+                            // Silo's fill is white-14% on a black-65% pill; the
+                            // polarity mirror (black on this white pill) needs
+                            // more alpha than silo's to read at TV distance -
+                            // at 12% a full sweep read as a solid white button.
+                            child: const ColoredBox(color: Color(0x47000000)),
                           ),
                         );
                       },
