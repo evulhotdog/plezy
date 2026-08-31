@@ -95,11 +95,14 @@ class DoubleTapFeedback extends StatefulWidget {
   /// discontinuity to cover and every press in a burst can safely replay it.
   static const double _pulseScale = 0.18;
 
-  /// Entrance fade: the controller runs 1000 ms, but the visible fade occupies
-  /// only its last 700 ms — the chevron stays transparent for the first 300 ms
-  /// so the slide is under way before the glyphs arrive.
-  static const Duration _fadeInDuration = Duration(milliseconds: 1000);
-  static const Curve _fadeInCurveShape = Interval(0.3, 1.0, curve: Curves.easeOut);
+  /// Entrance fade: the controller runs 1200 ms, but the visible fade occupies
+  /// only its last 780 ms (Interval 0.35–1.0) — the chevron stays transparent
+  /// for ~420 ms so the slide is under way before the glyphs arrive, and the
+  /// fade itself is LINEAR: an ease-out ramp hits two-thirds opacity in the
+  /// first third of the fade and reads as a pop-in, which is exactly the
+  /// "it's just appearing" review. A steady ramp is what reads as a fade.
+  static const Duration _fadeInDuration = Duration(milliseconds: 1200);
+  static const Curve _fadeInCurveShape = Interval(0.35, 1.0, curve: Curves.linear);
   static const Duration _slideDuration = Duration(milliseconds: 3600);
   static const Duration _pulseDuration = Duration(milliseconds: 1200);
 
@@ -165,10 +168,11 @@ class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with TickerProvid
     // still carries the old isForward there and cannot see the flip. The
     // rebuild is where the flip becomes knowable: replay that side's whole
     // arrival — slide from its own inward origin plus the entrance fade, with
-    // no pop. A same-side re-raise mid-fade is a repeat press: _onPress
-    // already extended the glide and popped; the parent raising opacity
-    // brings the readout back.
-    if (oldWidget.isForward != widget.isForward) {
+    // no pop. A same-side re-raise MID-fade is a repeat press: _onPress
+    // already extended the glide and popped. A re-raise after the fade has
+    // fully run out (still mounted, animate false→true) is an "it appears
+    // again" moment and replays the entrance too.
+    if (oldWidget.isForward != widget.isForward || (!oldWidget.animate && widget.animate)) {
       _onArrival(fresh: true);
     }
   }
