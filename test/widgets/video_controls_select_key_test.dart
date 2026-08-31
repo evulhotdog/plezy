@@ -214,6 +214,41 @@ void main() {
     });
   }
 
+  // Regression: the fill must sweep monotonically - position events and
+  // per-tick re-anchors may never move it backward. Replays the real cadence
+  // (position events at ~2 Hz, 16 ms frames) against the full controls.
+  playerTest(
+    'fill sweeps monotonically under position ticks',
+    markers: [MediaMarker(id: 1, type: 'intro', startTimeOffset: 10000, endTimeOffset: 45000)],
+    (tester) async {
+      await settings.write(SettingsService.autoSkipIntro, true);
+      player.emitPosition(const Duration(seconds: 15));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      double pillWidth() =>
+          tester.getRect(find.descendant(of: find.byType(SkipMarkerButton), matching: find.byType(Stack))).width;
+      Rect fillRect() =>
+          tester.getRect(find.descendant(of: find.byType(SkipMarkerButton), matching: find.byType(ColoredBox)));
+      var last = fillRect().width;
+      final samples = <double>[last];
+      for (var i = 1; i <= 187; i++) {
+        if (i % 31 == 0) player.emitPosition(const Duration(seconds: 15) + Duration(milliseconds: i * 16));
+        await tester.pump(const Duration(milliseconds: 16));
+        final w = fillRect().width;
+        if (w < last - 0.5) {
+          fail(
+            'fill moved backward at frame $i: ${last.toStringAsFixed(1)} -> ${w.toStringAsFixed(1)}\n'
+            'samples: ${samples.take(i).map((s) => s.toStringAsFixed(0)).join(',')}',
+          );
+        }
+        last = w;
+        samples.add(w);
+      }
+      // 3 s of a 5 s countdown: the fill must span ~60% of the pill.
+      expect(last, greaterThan(pillWidth() * 0.5), reason: 'fill should have swept most of the pill by t=3s');
+    },
+  );
+
   group('player navigation disabled', () {
     setUp(() => setNavigationEnabled(false));
 
