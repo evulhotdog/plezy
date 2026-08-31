@@ -4,6 +4,7 @@ final Expando<LatestAsyncWrite<String>> _subtitleVisibilityWrites = Expando<Late
 
 extension _PlexVideoControlsTrackMethods on _PlexVideoControlsState {
   void _toggleSubtitles() {
+    _cancelRewindSubtitles();
     // Restoring always works: backends without a renderer-level visibility
     // switch hide subtitles by deselecting them, so the current track reads
     // as Off while hidden and a selection check would trap the toggle.
@@ -54,6 +55,11 @@ extension _PlexVideoControlsTrackMethods on _PlexVideoControlsState {
   }
 
   void _onSubtitleTrackChanged(SubtitleTrack track) {
+    // The viewer's own picks feed the rewind-subtitles "previous track"
+    // memory, and any manual pick cancels an open temp window: the user has
+    // taken over, so the revert must not fire later.
+    if (track.id != 'no') _lastNonOffSubtitleTrack = track;
+    _cancelRewindSubtitles();
     if (track.id != 'no' && !_subtitlesVisible) {
       _setSubtitleVisibility(true);
     }

@@ -64,6 +64,7 @@ import '../../utils/codec_utils.dart';
 import '../../utils/formatters.dart';
 import '../../utils/platform_detector.dart';
 import '../../utils/player_utils.dart';
+import '../../utils/subtitle_forced_semantics.dart';
 import '../../utils/route_visibility.dart';
 import '../../theme/mono_tokens.dart';
 import '../../utils/provider_extensions.dart';
@@ -102,6 +103,7 @@ part 'parts/markers.dart';
 part 'parts/navigation.dart';
 part 'parts/playback_extras.dart';
 part 'parts/playback_input.dart';
+part 'parts/rewind_subtitles.dart';
 part 'parts/track_controls.dart';
 part 'parts/visibility.dart';
 
@@ -879,6 +881,16 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
   bool _subtitlesVisible = true;
   bool _confirmedSubtitlesVisible = true;
   int _subtitleVisibilityWriteGeneration = 0;
+  // Rewind-temporary subtitles (parts/rewind_subtitles.dart).
+  bool _tempSubsActive = false;
+  bool _tempSubsArmed = false;
+  Duration _tempSubsAnchor = Duration.zero;
+  SubtitleTrack? _tempSubsRestoreTrack;
+  bool _tempSubsRestoreVisibility = true;
+  SubtitleTrack? _lastNonOffSubtitleTrack;
+  StreamSubscription<Duration>? _tempSubsPositionSubscription;
+  SubtitleTrack? _tempSubsCandidate;
+  StreamSubscription<TrackSelection>? _tempSubsTrackSubscription;
   // Skip marker button focus node (for TV D-pad navigation)
   late final FocusNode _skipMarkerFocusNode;
   final ValueNotifier<bool> _fallbackHasFirstFrame = ValueNotifier<bool>(true);
@@ -929,7 +941,10 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
       // resume position, a new item, a swapped player — the promise is void, so
       // take the readout down instead of leaving a total nothing will seek to
       // (#1819, keeping the #1676 badge-matches-seek invariant).
-      onBurstAbandoned: _dismissSkipFeedback,
+      onBurstAbandoned: () {
+        _dismissSkipFeedback();
+        _onRewindSkipBurstAbandoned();
+      },
     );
     // Side effects: rotation lock + focus on nav-enable. Both fire immediately
     // so init wiring (orientation, focus) lives in one place.
@@ -1023,6 +1038,7 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
   void didUpdateWidget(PlexVideoControls oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.player != widget.player) {
+      _cancelRewindSubtitles();
       ++_subtitleVisibilityWriteGeneration;
       // Otherwise the accumulator keeps listening to the retired player and
       // never hears the new one move.
@@ -1040,6 +1056,7 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
     // the per-item chapters/markers/skip state when the item changes.
     // (Quality/version switches keep the same item, so no refetch churn.)
     if (oldWidget.metadata.globalKey != widget.metadata.globalKey) {
+      _cancelRewindSubtitles();
       // A pending skip is an offset into the outgoing item's timeline; letting
       // it survive would rebase the next press onto the previous episode. This
       // is the lifecycle backstop for every route that replaces the item
@@ -1095,6 +1112,8 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
     _playingSubscription?.cancel();
     _completedSubscription?.cancel();
     _positionSubscription?.cancel();
+    _tempSubsPositionSubscription?.cancel();
+    _tempSubsTrackSubscription?.cancel();
     _rateSubscription?.cancel();
     _focusNode.dispose();
     _skipMarkerFocusNode.dispose();
