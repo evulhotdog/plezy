@@ -109,9 +109,12 @@ class DoubleTapFeedback extends StatefulWidget {
   /// Position gate for the chevron's own fade, in slide-progress fractions.
   /// The inward displacement (96 dp) is wider than the number's slot, so the
   /// chevron overlaps the number until roughly 62% of the travel; past that
-  /// it fades in over the next third and rests fully visible.
+  /// it fades in with a steady ramp through the whole glide tail, reaching
+  /// full opacity exactly as it comes to rest. (62%→100% of an 1800 ms
+  /// easeInOutSine slide ≈ 760 ms of fade.) The readout hold
+  /// (_skipFeedbackDuration) is sized to let this complete.
   static const double _chevronFadeStart = 0.62;
-  static const double _chevronFadeEnd = 0.92;
+  static const double _chevronFadeEnd = 1.0;
 
   /// Fixed minimum so the digit count changing (e.g. "5s" -> "15s") doesn't
   /// reflow the row and shift the number; it just grows away from the chevron.
