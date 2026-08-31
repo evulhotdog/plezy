@@ -682,10 +682,15 @@ void main() {
       );
 
       await tester.pump(const Duration(milliseconds: 500));
-      expect(fadeIn(tester), lessThan(1.0), reason: 'the fade holds back before arriving');
+      expect(fadeIn(tester), lessThan(0.3), reason: 'the hold keeps it transparent while the slide starts');
 
-      await tester.pump(const Duration(milliseconds: 700));
-      expect(fadeIn(tester), 1.0, reason: 'and settles fully visible');
+      await tester.pump(const Duration(milliseconds: 400));
+      final midFade = fadeIn(tester);
+      expect(midFade, greaterThan(0.1), reason: 'mid-fade it is partially visible');
+      expect(midFade, lessThan(0.9), reason: 'and the ramp is steady, not a snap');
+
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(fadeIn(tester), moreOrLessEquals(1.0, epsilon: 0.1), reason: 'nearly settled as the entrance completes');
 
       await settleFeedback(tester);
     });
