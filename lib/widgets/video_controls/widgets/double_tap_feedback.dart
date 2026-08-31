@@ -93,7 +93,7 @@ class DoubleTapFeedback extends StatefulWidget {
 
   /// Per-press accent. Starts and ends at rest, so re-firing mid-flight has no
   /// discontinuity to cover and every press in a burst can safely replay it.
-  static const double _pulseScale = 0.18;
+  static const double _pulseScale = 0.30;
 
   /// Entrance fade: the controller runs 1200 ms, but the visible fade occupies
   /// only its last 780 ms (Interval 0.35–1.0) — the chevron stays transparent
@@ -101,9 +101,9 @@ class DoubleTapFeedback extends StatefulWidget {
   /// fade itself is LINEAR: an ease-out ramp hits two-thirds opacity in the
   /// first third of the fade and reads as a pop-in, which is exactly the
   /// "it's just appearing" review. A steady ramp is what reads as a fade.
-  static const Duration _fadeInDuration = Duration(milliseconds: 1200);
+  static const Duration _fadeInDuration = Duration(milliseconds: 2400);
   static const Curve _fadeInCurveShape = Interval(0.35, 1.0, curve: Curves.linear);
-  static const Duration _slideDuration = Duration(milliseconds: 1800);
+  static const Duration _slideDuration = Duration(milliseconds: 8000);
   static const Duration _pulseDuration = Duration(milliseconds: 1200);
 
   /// Position gate for the chevron's own fade, in slide-progress fractions.
