@@ -49,10 +49,21 @@ done
 
 # Toolchain comes from shell.nix; re-exec once inside it if we are on the host.
 if ! command -v flutter >/dev/null 2>&1 || ! command -v dart >/dev/null 2>&1; then
-  if [ -f "$ROOT/shell.nix" ] && command -v nix-shell >/dev/null 2>&1; then
-    exec nix-shell --run "$(printf '%q ' "$SCRIPT_PATH" -- "$@")"
+  if command -v nix-shell >/dev/null 2>&1; then
+    # The nix env lives on the build/nix-shell branch; work from any checkout.
+    NIX_ENV="$ROOT/shell.nix"
+    if [ ! -f "$NIX_ENV" ] && command -v git >/dev/null 2>&1; then
+      NIX_ENV="$(mktemp)"
+      git show build/nix-shell:shell.nix > "$NIX_ENV" 2>/dev/null \
+        || git show origin/build/nix-shell:shell.nix > "$NIX_ENV" 2>/dev/null
+    fi
+    if [ -f "$NIX_ENV" ]; then
+      exec nix-shell "$NIX_ENV" --run "$(printf '%q ' "$SCRIPT_PATH" -- "$@")"
+    fi
   fi
-  echo "error: flutter/dart not on PATH and shell.nix is unavailable on this branch" >&2
+  echo "error: flutter/dart not on PATH and no nix env available" >&2
+  echo "       (shell.nix is committed on the build/nix-shell branch; fetch it or" >&2
+  echo "        run this from a checkout that has it)" >&2
   exit 1
 fi
 command -v adb >/dev/null 2>&1 || { echo "error: adb not on PATH" >&2; exit 1; }
@@ -66,16 +77,16 @@ if [ -z "$installed_vc" ]; then
   exit 1
 fi
 
-# `flutter run` builds versionCode from the pubspec build number (the +N in
-# `version:`). It must be > installed or adb refuses the downgrade.
+# flutter run builds versionCode from the pubspec build number (the +N in
+# `version:`). It must be >= installed or adb refuses the downgrade (equal is
+# fine: same signature + same versionCode is a clean -r reinstall).
 pubspec_vc="$(sed -n 's/^version:.*+\([0-9][0-9]*\).*/\1/p' "$ROOT/pubspec.yaml" | head -1)"
-if [ -z "$pubspec_vc" ] || [ "$pubspec_vc" -le "$installed_vc" ]; then
-  echo "error: pubspec build number (+$pubspec_vc) must exceed installed versionCode $installed_vc" >&2
+if [ -z "$pubspec_vc" ] || [ "$pubspec_vc" -lt "$installed_vc" ]; then
+  echo "error: pubspec build number (+$pubspec_vc) is below installed versionCode $installed_vc" >&2
   echo "       'flutter run' has no --build-number flag; bump pubspec.yaml's version: to" >&2
   echo "       x.y.z+$((installed_vc + 1)) or higher once, then rerun. Hot reload then needs no reinstall." >&2
   exit 1
 fi
-
 # Verify the installed build is signed with this machine's debug keystore
 # (what every local --profile build uses). A mismatch would force adb uninstall
 # and wipe app data/logins, so abort before trying.
