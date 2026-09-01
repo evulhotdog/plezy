@@ -89,7 +89,7 @@ class DoubleTapFeedback extends StatefulWidget {
   /// Travel runs inward → 0 and never past 0, so it can't walk off the edge.
   /// Long enough that the glide reads as travel at TV viewing distance — a
   /// 40 dp drift with a decelerate curve reads as a flick, not a slide.
-  static const double _slideDistance = 70;
+  static const double _slideDistance = 30;
 
   /// Per-press accent. Starts and ends at rest, so re-firing mid-flight has no
   /// discontinuity to cover and every press in a burst can safely replay it.
@@ -101,10 +101,10 @@ class DoubleTapFeedback extends StatefulWidget {
   /// fade itself is LINEAR: an ease-out ramp hits two-thirds opacity in the
   /// first third of the fade and reads as a pop-in, which is exactly the
   /// "it's just appearing" review. A steady ramp is what reads as a fade.
-  static const Duration _fadeInDuration = Duration(milliseconds: 1200);
-  static const Curve _fadeInCurveShape = Interval(0.50, 1.0, curve: Curves.linear);
-  static const Duration _slideDuration = Duration(milliseconds: 8000);
-  static const Duration _pulseDuration = Duration(milliseconds: 1200);
+  static const Duration _fadeInDuration = Duration(milliseconds: 400);
+  static const Curve _fadeInCurveShape = Interval(0.35, 1.0, curve: Curves.linear);
+  static const Duration _slideDuration = Duration(milliseconds: 4000);
+  static const Duration _pulseDuration = Duration(milliseconds: 2400);
 
   /// Position gate for the chevron's own fade, in slide-progress fractions.
   /// The inward displacement (96 dp) is wider than the number's slot, so the
@@ -113,7 +113,7 @@ class DoubleTapFeedback extends StatefulWidget {
   /// full opacity exactly as it comes to rest. (62%→100% of an 1800 ms
   /// easeInOutSine slide ≈ 760 ms of fade.) The readout hold
   /// (_skipFeedbackDuration) is sized to let this complete.
-  static const double _chevronFadeStart = 0.62;
+  static const double _chevronFadeStart = 0.00;
   static const double _chevronFadeEnd = 1.0;
 
   /// Fixed minimum so the digit count changing (e.g. "5s" -> "15s") doesn't
