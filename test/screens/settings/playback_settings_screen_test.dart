@@ -116,6 +116,27 @@ void main() {
     expect(SettingsService.instance.read(SettingsService.deinterlace), isTrue);
   });
 
+  testWidgets('turns the covered-source direct play off from the quality group (#2193)', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1000, 1400);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(MaterialApp(theme: monoTheme(dark: true), home: const PlaybackSettingsScreen()));
+    await tester.pumpAndSettle();
+
+    final title = find.text('Play Smaller Videos at Original Quality');
+    await tester.scrollUntilVisible(title, 500, scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(title);
+    await tester.pumpAndSettle();
+
+    expect(SettingsService.instance.read(SettingsService.directPlayCoveredQuality), isTrue);
+    await tester.tap(title);
+    await tester.pumpAndSettle();
+
+    expect(SettingsService.instance.read(SettingsService.directPlayCoveredQuality), isFalse);
+  });
+
   testWidgets('gesture toggles render on mobile and persist', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1000, 1400);
