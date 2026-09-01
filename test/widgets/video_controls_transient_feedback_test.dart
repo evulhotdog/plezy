@@ -151,7 +151,7 @@ void main() {
 
       expect(chrome.controlsVisible, isFalse, reason: 'seeking must not cover the picture');
       expect(find.byType(DoubleTapFeedback), findsOneWidget);
-      expect(find.text('10s'), findsOneWidget);
+      expect(find.text('10s'), findsNWidgets(2));
 
       await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowRight);
       await tester.pump();
@@ -172,7 +172,7 @@ void main() {
         await tester.pump();
       }
 
-      expect(find.text('30s'), findsOneWidget);
+      expect(find.text('30s'), findsNWidgets(2));
       expect(chrome.controlsVisible, isFalse);
 
       await settleFeedback(tester);
@@ -185,14 +185,14 @@ void main() {
       await tester.pump();
       await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowRight);
       await tester.pump();
-      expect(find.text('10s'), findsOneWidget);
+      expect(find.text('10s'), findsNWidgets(2));
 
       await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowLeft);
       await tester.pump();
       await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowLeft);
       await tester.pump();
 
-      expect(find.text('10s'), findsOneWidget, reason: 'the reverse burst is counted on its own');
+      expect(find.text('10s'), findsNWidgets(2), reason: 'the reverse burst is counted on its own');
       expect(chrome.controlsVisible, isFalse);
 
       await settleFeedback(tester);
@@ -241,7 +241,7 @@ void main() {
       await tester.pump();
 
       expect(chrome.controlsVisible, isFalse);
-      expect(find.text('10s'), findsOneWidget);
+      expect(find.text('10s'), findsNWidgets(2));
       expect(player.seeks, [const Duration(minutes: 10, seconds: 10)]);
 
       await settleFeedback(tester);
@@ -260,7 +260,7 @@ void main() {
         await tester.pump();
       }
 
-      expect(find.text('30s'), findsOneWidget);
+      expect(find.text('30s'), findsNWidgets(2));
       expect(player.seeks, [
         const Duration(minutes: 10, seconds: 10),
         const Duration(minutes: 10, seconds: 20),
@@ -302,7 +302,7 @@ void main() {
         const Duration(minutes: 30, seconds: 10),
         reason: 'the skip must be relative to the new position, not to the superseded 10:10 target',
       );
-      expect(find.text('10s'), findsOneWidget, reason: 'the abandoned burst total must not keep climbing');
+      expect(find.text('10s'), findsNWidgets(2), reason: 'the abandoned burst total must not keep climbing');
 
       await settleFeedback(tester);
     });
@@ -346,7 +346,7 @@ void main() {
         await tester.sendKeyUpEvent(LogicalKeyboardKey.mediaFastForward);
         await tester.pump();
       }
-      expect(find.text('20s'), findsOneWidget);
+      expect(find.text('20s'), findsNWidgets(2));
       expect(player.seeks.last, const Duration(minutes: 10, seconds: 20));
 
       await pumpControls(tester, itemId: 'next-episode');
@@ -361,7 +361,7 @@ void main() {
         const Duration(minutes: 10, seconds: 10),
         reason: 'the new item restarts from the live position, not from the outgoing 10:20 target',
       );
-      expect(find.text('10s'), findsOneWidget, reason: 'the badge must not keep counting the abandoned burst');
+      expect(find.text('10s'), findsNWidgets(2), reason: 'the badge must not keep counting the abandoned burst');
 
       await settleFeedback(tester);
     });
@@ -642,10 +642,10 @@ void main() {
       expect(find.descendant(of: feedback, matching: find.byType(DecoratedBox)), findsNothing);
 
       // Amount and exactly one chevron, on one line, near the seek-side edge.
-      final chevron = find.descendant(of: feedback, matching: find.byType(AppIcon));
+      final chevron = find.descendant(of: feedback, matching: find.byType(CustomPaint));
       expect(chevron, findsOneWidget);
-      final label = tester.getRect(find.text('10s'));
       final arrow = tester.getRect(chevron);
+      final label = tester.getRect(find.text('10s').first);
       expect(arrow.left, greaterThan(label.left), reason: 'the chevron leads in the travel direction');
       expect(
         arrow.center.dy,
@@ -657,21 +657,96 @@ void main() {
       expect(arrow.right, lessThan(surface.right), reason: 'inside the overscan-safe inset');
       expect(label.left, greaterThan(surface.center.dx), reason: 'anchored to the right half, not centred');
       expect(label.center.dy, moreOrLessEquals(surface.center.dy, epsilon: 2));
+      await settleFeedback(tester);
+    });
+
+    testWidgets('a fresh arrival fades in instead of just appearing', (tester) async {
+      await pumpControls(tester);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+
+      double fadeIn(WidgetTester tester) => tester
+          .widget<FadeTransition>(
+            find.descendant(of: find.byType(DoubleTapFeedback), matching: find.byType(FadeTransition)),
+          )
+          .opacity
+          .value;
+      double chevronScale(WidgetTester tester) =>
+          tester.widget<Transform>(find.byKey(const ValueKey('seekChevronPulse'))).transform.getMaxScaleOnAxis();
+      double chevronOpacity(WidgetTester tester) =>
+          tester.widget<Opacity>(find.byKey(const ValueKey('seekChevronOpacity'))).opacity;
+      expect(fadeIn(tester), lessThan(0.5), reason: 'the entrance starts transparent');
+      expect(
+        chevronScale(tester),
+        moreOrLessEquals(1.0, epsilon: 0.01),
+        reason: 'and at rest size — no pop on arrival',
+      );
+
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(fadeIn(tester), lessThan(0.3), reason: 'the hold keeps it transparent while the slide starts');
+      // The chevron is still on top of the number's slot: fully invisible
+      // regardless of the number's own fade progress.
+      expect(chevronOpacity(tester), 0.0, reason: 'the chevron is position-gated, not clock-gated');
+
+      await tester.pump(const Duration(milliseconds: 400));
+      final midFade = fadeIn(tester);
+      expect(midFade, greaterThan(0.1), reason: 'mid-fade it is partially visible');
+      expect(midFade, lessThan(0.9), reason: 'and the ramp is steady, not a snap');
+      expect(chevronOpacity(tester), 0.0, reason: 'still short of the clear-of-number point');
+
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(fadeIn(tester), moreOrLessEquals(1.0, epsilon: 0.1), reason: 'nearly settled as the entrance completes');
+      // The chevron has only just cleared the number (~62% of travel); its own
+      // fade is deliberately behind the number's.
+      expect(chevronOpacity(tester), greaterThan(0.0), reason: 'but it is on its way in once past the number');
+      expect(chevronOpacity(tester), lessThan(fadeIn(tester)), reason: 'the chevron trails the number');
+
+      // The hold now outlasts the choreography: the glide reaches rest and the
+      // chevron arrives at full opacity before the readout starts to dismiss.
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(chevronOpacity(tester), 1.0, reason: 'fully visible once the glide comes to rest');
 
       await settleFeedback(tester);
     });
 
-    /// Opacity of the drifting chevron. Sampling it is how "still animating"
-    /// becomes observable.
-    double chevronOpacity(WidgetTester tester) => tester
-        .widget<Opacity>(find.descendant(of: find.byType(DoubleTapFeedback), matching: find.byType(Opacity)))
-        .opacity;
+    testWidgets('reversing direction replays the whole entrance on the other side', (tester) async {
+      await pumpControls(tester);
 
-    double chevronDx(WidgetTester tester) => tester
-        .widget<Transform>(find.descendant(of: find.byType(DoubleTapFeedback), matching: find.byType(Transform)))
-        .transform
-        .getTranslation()
-        .x;
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump(const Duration(milliseconds: 1100));
+      double chevronDx(WidgetTester tester) =>
+          tester.widget<Transform>(find.byKey(const ValueKey('seekChevronSlide'))).transform.getTranslation().x;
+      expect(chevronDx(tester), lessThan(-1.0), reason: 'still gliding on the right');
+
+      // Flip while still showing: the left side plays its own arrival —
+      // fade from nothing and a fresh slide from its own inward origin.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.pump();
+      double fadeIn(WidgetTester tester) => tester
+          .widget<FadeTransition>(
+            find.descendant(of: find.byType(DoubleTapFeedback), matching: find.byType(FadeTransition)),
+          )
+          .opacity
+          .value;
+      expect(fadeIn(tester), lessThan(0.5), reason: 'the flip replays the entrance fade');
+      expect(chevronDx(tester), greaterThan(60.0), reason: 'and the slide restarts from its inward origin');
+      double chevronScale(WidgetTester tester) =>
+          tester.widget<Transform>(find.byKey(const ValueKey('seekChevronPulse'))).transform.getMaxScaleOnAxis();
+      expect(
+        chevronScale(tester),
+        moreOrLessEquals(1.0, epsilon: 0.01),
+        reason: 'at rest size — the flip does not pop',
+      );
+
+      final arrow = tester.getRect(
+        find.descendant(of: find.byType(DoubleTapFeedback), matching: find.byType(CustomPaint)),
+      );
+      final surface = tester.getRect(find.byType(PlexVideoControls));
+      expect(arrow.center.dx, lessThan(surface.center.dx), reason: 'the chevron now leads on the left side');
+
+      await settleFeedback(tester);
+    });
 
     testWidgets('each stacked press shows its new total', (tester) async {
       await pumpControls(tester);
@@ -679,62 +754,68 @@ void main() {
       await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowRight);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('10s'), findsOneWidget);
+      expect(find.text('10s'), findsNWidgets(2));
 
       await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowRight);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 60));
 
       // The amount is the per-press feedback here; no extra kick is needed.
-      expect(find.text('20s'), findsOneWidget);
+      expect(find.text('20s'), findsNWidgets(2));
       expect(find.text('10s'), findsNothing);
 
       await settleFeedback(tester);
     });
 
-    testWidgets('the chevron stays visible and travels one way through a held burst', (tester) async {
-      // It is a persistent cue, not a blinking one: it must never fade out
-      // entirely, and it must only ever displace toward the seek direction.
+    testWidgets('the chevron glides to rest on arrival and pops once per press through a held burst', (tester) async {
+      // Silo parity: the chevron slides inward-to-rest once per fresh arrival
+      // and then holds its spot; each press replays only the scale pulse. The
+      // badge itself never blinks mid-burst.
       await pumpControls(tester);
+
+      double chevronDx(WidgetTester tester) =>
+          tester.widget<Transform>(find.byKey(const ValueKey('seekChevronSlide'))).transform.getTranslation().x;
+      double chevronScale(WidgetTester tester) =>
+          tester.widget<Transform>(find.byKey(const ValueKey('seekChevronPulse'))).transform.getMaxScaleOnAxis();
+      double badgeTargetOpacity(WidgetTester tester) => tester
+          .widget<AnimatedOpacity>(
+            find.ancestor(of: find.byType(DoubleTapFeedback), matching: find.byType(AnimatedOpacity)),
+          )
+          .opacity;
 
       await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowRight);
       await tester.pump();
+      expect(chevronDx(tester), lessThan(-0.01), reason: 'arrives displaced toward the centre');
+      expect(badgeTargetOpacity(tester), 1.0, reason: 'the badge holds while the burst continues');
 
-      var peak = 0.0;
-      var floor = 1.0;
-      var mostBackward = 0.0;
-      var peakDx = 0.0;
-      final samples = <double>[];
-      final positions = <double>{};
-      for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 900));
+      expect(chevronDx(tester), lessThan(-1.0), reason: 'still gliding inward — the slide is unhurried');
+
+      var peakScale = 1.0;
+      var minDx = 0.0;
+      var maxDx = 0.0;
+      for (var i = 0; i < 8; i++) {
         await tester.sendKeyRepeatEvent(LogicalKeyboardKey.arrowRight);
-        await tester.pump(const Duration(milliseconds: 60));
-        final o = chevronOpacity(tester);
-        peak = math.max(peak, o);
-        floor = math.min(floor, o);
+        await tester.pump(const Duration(milliseconds: 50));
+        peakScale = math.max(peakScale, chevronScale(tester));
         final dx = chevronDx(tester);
-        mostBackward = math.min(mostBackward, dx);
-        peakDx = math.max(peakDx, dx);
-        samples.add(dx);
-        positions.add(double.parse(dx.toStringAsFixed(2)));
+        minDx = math.min(minDx, dx);
+        maxDx = math.max(maxDx, dx);
       }
-
+      // A press landing while the badge is fading out re-raises it with a
+      // fresh slide (the glide restarts only on a direction flip or fresh
+      // arrival), so mid-burst the chevron is either at rest or gliding
+      // inward-to-rest — never past either.
+      expect(minDx, greaterThanOrEqualTo(-96.5), reason: 'the slide never overshoots its resting spot');
+      expect(maxDx, lessThanOrEqualTo(0.5), reason: 'forward travel never crosses behind the origin');
+      expect(peakScale, greaterThan(1.05), reason: 'each press pops the chevron');
+      await tester.pump(const Duration(milliseconds: 1150));
+      expect(chevronScale(tester), moreOrLessEquals(1.0, epsilon: 0.02), reason: 'the pulse settles back to rest');
       await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowRight);
       await tester.pump();
-
-      expect(floor, greaterThan(0.6), reason: 'the chevron must never blink out mid-burst');
-      expect(peak, greaterThan(0.9), reason: 'and must reach full strength as it travels');
-      expect(mostBackward, greaterThanOrEqualTo(-0.01), reason: 'a forward seek never crosses behind its origin');
-      expect(positions.length, greaterThan(3), reason: 'it keeps moving rather than sitting still');
-      // The outward stroke dominates. Mean displacement over a cycle is exactly
-      // half the amplitude for a symmetric wobble, and higher when the chevron
-      // dwells at the far end and returns briefly.
-      final mean = samples.reduce((a, b) => a + b) / samples.length;
-      expect(
-        mean / peakDx,
-        greaterThan(0.55),
-        reason: 'travel should read as directional, not as an even back-and-forth',
-      );
+      // The burst dismissed, the readout comes all the way down.
+      await tester.pump(const Duration(milliseconds: 2000));
+      expect(find.byType(DoubleTapFeedback), findsNothing);
 
       await settleFeedback(tester);
     });
@@ -760,7 +841,15 @@ void main() {
                 size: narrow,
                 child: Stack(
                   children: [
-                    Positioned.fill(child: DoubleTapFeedback(isForward: true, seconds: seconds, animate: true)),
+                    Positioned.fill(
+                      child: DoubleTapFeedback(
+                        isForward: true,
+                        seconds: seconds,
+                        nonce: ValueNotifier<int>(0),
+                        pressForward: ValueNotifier<bool>(true),
+                        animate: true,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -894,7 +983,7 @@ void main() {
 
       expect(chrome.controlsVisible, isFalse, reason: 'keyboard seeking must not cover the subtitles either');
       expect(find.byType(DoubleTapFeedback), findsOneWidget);
-      expect(find.text('10s'), findsOneWidget);
+      expect(find.text('10s'), findsNWidgets(2));
       expect(player.seeks, [const Duration(minutes: 10, seconds: 10)]);
 
       await settleFeedback(tester);
@@ -905,7 +994,7 @@ void main() {
 
       await pressKey(tester, LogicalKeyboardKey.arrowLeft);
 
-      expect(find.text('10s'), findsOneWidget);
+      expect(find.text('10s'), findsNWidgets(2));
       expect(player.seeks, [const Duration(minutes: 9, seconds: 50)]);
       expect(chrome.controlsVisible, isFalse);
 
@@ -920,7 +1009,7 @@ void main() {
       await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
       await tester.pump();
 
-      expect(find.text('30s'), findsOneWidget);
+      expect(find.text('30s'), findsNWidgets(2));
       expect(player.seeks, [const Duration(minutes: 10, seconds: 30)]);
       expect(chrome.controlsVisible, isFalse);
 
@@ -938,7 +1027,7 @@ void main() {
         await pressKey(tester, LogicalKeyboardKey.arrowRight);
       }
 
-      expect(find.text('30s'), findsOneWidget);
+      expect(find.text('30s'), findsNWidgets(2));
       expect(player.seeks, [
         const Duration(minutes: 10, seconds: 10),
         const Duration(minutes: 10, seconds: 20),
@@ -972,7 +1061,7 @@ void main() {
       await pressKey(tester, LogicalKeyboardKey.arrowRight);
 
       expect(player.seeks.last, const Duration(minutes: 2, seconds: 10));
-      expect(find.text('10s'), findsOneWidget);
+      expect(find.text('10s'), findsNWidgets(2));
 
       await settleFeedback(tester);
     });
@@ -1030,7 +1119,7 @@ void main() {
 
       await pressKey(tester, LogicalKeyboardKey.arrowRight);
       expect(liveOffsets, [10]);
-      expect(find.text('10s'), findsOneWidget);
+      expect(find.text('10s'), findsNWidgets(2));
 
       chrome.show();
       await tester.pump();
@@ -1054,7 +1143,7 @@ void main() {
 
       await pressKey(tester, LogicalKeyboardKey.arrowRight);
       expect(liveOffsets, [10]);
-      expect(find.text('10s'), findsOneWidget);
+      expect(find.text('10s'), findsNWidgets(2));
 
       chrome.show();
       await tester.pump();

@@ -647,9 +647,17 @@ extension _PlexVideoControlsPlaybackInputMethods on _PlexVideoControlsState {
   /// Accumulate skip feedback. Consecutive skips in the same direction stack
   /// into one running total; a direction flip restarts the count.
   void _registerSkipFeedback({required bool isForward, required int seconds}) {
+    final wasShowingThisSide =
+        _showDoubleTapFeedback && _lastDoubleTapWasForward == isForward && _doubleTapFeedbackOpacity == 1.0;
     final stacking = _showDoubleTapFeedback && _lastDoubleTapWasForward == isForward;
     _accumulatedSkipSeconds.value = stacking ? _accumulatedSkipSeconds.value + seconds : seconds;
-    _showSkipFeedback(isForward: isForward);
+    // Written BEFORE the nonce bump: the visualizer's listener runs while the
+    // widget still holds the old direction, and needs the press's direction
+    // to tell a flip (no pop — the entrance replays) from a repeat (pop).
+    _lastDoubleTapWasForward = isForward;
+    _skipFeedbackPressForward.value = isForward;
+    _skipFeedbackNonce.value++;
+    _showSkipFeedback(isForward: isForward, alreadyVisible: wasShowingThisSide);
   }
 
   /// Wrap an absolute live action so it takes down the badge a pending live
@@ -707,12 +715,15 @@ extension _PlexVideoControlsPlaybackInputMethods on _PlexVideoControlsState {
   /// the value and keep skipping; Maestro builds hold it far longer because
   /// accessibility-tree queries on physical devices routinely outlast the
   /// production timeout — the same reason the chrome hide delay is extended.
+  ///
+  /// 2000 ms (not 1200): the entrance choreography — number fade, then the
+  /// chevron's position-gated fade completing as the slide comes to rest at
+  /// 1800 ms — must finish before the readout starts to fade out, or the
+  /// chevron is truncated mid-entrance (visible for only a few frames).
   Duration get _skipFeedbackDuration => const bool.fromEnvironment('PLEZY_MAESTRO_E2E')
       ? const Duration(seconds: 30)
-      : const Duration(milliseconds: 1200);
-
-  /// Show animated visual feedback for skip gesture
-  void _showSkipFeedback({required bool isForward}) {
+      : const Duration(milliseconds: 2000);
+  void _showSkipFeedback({required bool isForward, required bool alreadyVisible}) {
     // Reads `tokens(context)` below, so a caller reaching here after disposal
     // would touch a defunct element rather than merely no-op.
     if (!mounted) return;
@@ -722,9 +733,9 @@ extension _PlexVideoControlsPlaybackInputMethods on _PlexVideoControlsState {
     _feedbackTimer?.cancel();
     _feedbackHideTimer?.cancel();
 
-    final feedbackAlreadyVisible =
-        _showDoubleTapFeedback && _lastDoubleTapWasForward == isForward && _doubleTapFeedbackOpacity == 1.0;
-    if (!feedbackAlreadyVisible) {
+    // alreadyVisible was measured against the previously shown direction, so a
+    // direction flip always takes the rebuild that replays the entrance.
+    if (!alreadyVisible) {
       _setControlsState(() {
         _lastDoubleTapWasForward = isForward;
         _showDoubleTapFeedback = true;

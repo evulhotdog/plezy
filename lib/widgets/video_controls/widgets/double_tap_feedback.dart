@@ -1,13 +1,12 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../i18n/strings.g.dart';
 import '../../../utils/formatters.dart';
 import '../../../utils/platform_detector.dart';
-import '../../app_icon.dart';
 
 /// Label for the skip feedback. Plain `Ns` stays readable up to a minute; beyond
 /// that (reachable by held D-pad seeking, which accelerates) a raw second
@@ -18,20 +17,45 @@ String formatSkipFeedbackLabel(int seconds) {
   return formatDurationTimestamp(Duration(seconds: seconds));
 }
 
-/// Transient seek readout at the side of the frame the seek travels toward: the
-/// amount, and a single chevron on the same line drifting that way.
+/// Port of silo-android's TvSeekVisualizer (ff-rw-ui, 8c391998): a tall, thin
+/// chevron on the side the seek travels toward, sliding inward-to-rest on
+/// arrival and pulsing once per press, with the burst's accumulated total
+/// beside it.
+///
+/// Legibility comes from dark keylines behind every glyph rather than shadows —
+/// the outline is centred on the glyph edge, so half lands outside and half is
+/// covered by the fill, reading as a caption outline instead of a drop shadow.
 ///
 /// Deliberately unbacked — no scrim, no puck. Anything large enough to read as a
 /// surface also covers picture and subtitles, which is the complaint this
-/// feedback exists to answer. Legibility comes from shadows instead.
+/// feedback exists to answer.
 ///
-/// Only the chevron moves. The amount is what the viewer reads, so it stays put.
+/// The amount is what the viewer reads, so it never moves; only the chevron
+/// slides and pulses.
 class DoubleTapFeedback extends StatefulWidget {
   final bool isForward;
   final ValueListenable<int> seconds;
+
+  /// Bumps once per skip press. Same-direction presses stack the total without
+  /// rebuilding this widget, so the nonce is what lets each press replay the
+  /// pulse and extend the glide.
+  final ValueListenable<int> nonce;
+
+  /// The press's own direction, written before [nonce] fires. The widget's
+  /// [isForward] is stale until the parent rebuilds, so this is what tells a
+  /// flip (entrance replay, no pop) from a same-side repeat (pop).
+  final ValueListenable<bool> pressForward;
+
   final bool animate;
 
-  const DoubleTapFeedback({super.key, required this.isForward, required this.seconds, required this.animate});
+  const DoubleTapFeedback({
+    super.key,
+    required this.isForward,
+    required this.seconds,
+    required this.nonce,
+    required this.pressForward,
+    required this.animate,
+  });
 
   /// Inset from the anchored edge. TVs overscan roughly 5% of each edge, so
   /// derive it from the viewport rather than assuming 1080p logical geometry — a
@@ -53,89 +77,178 @@ class DoubleTapFeedback extends StatefulWidget {
   /// logical width — 960dp at 2x versus roughly 900dp in landscape.
   static double _labelSize(BuildContext context) => PlatformDetector.isTV() ? 34 : 26;
 
-  static double _chevronSize(BuildContext context) => PlatformDetector.isTV() ? 46 : 36;
+  /// Chevron geometry, from the silo original: 28 dp wide with a 6 dp stroke,
+  /// a quarter of the screen tall on TV so it reads from across the room.
+  /// Clamped on handsets, where a quarter of a portrait frame is enormous.
+  static const double _chevronWidth = 28;
+  static const double _chevronStrokeWidth = 6;
+  static double _chevronHeight(BuildContext context, double screenH) =>
+      PlatformDetector.isTV() ? screenH * 0.25 : math.min(screenH * 0.25, 140);
 
-  /// How far the chevron drifts either side of centre, in logical pixels. Scaled
-  /// with the glyph so the motion stays proportional.
-  static double _driftDistance(BuildContext context) => _chevronSize(context) * 0.22;
+  /// The chevron slides from this far inward out to its laid-out resting spot.
+  /// Travel runs inward → 0 and never past 0, so it can't walk off the edge.
+  /// Long enough that the glide reads as travel at TV viewing distance — a
+  /// 40 dp drift with a decelerate curve reads as a flick, not a slide.
+  static const double _slideDistance = 96;
 
-  static const Duration _driftPeriod = Duration(milliseconds: 1100);
+  /// Per-press accent. Starts and ends at rest, so re-firing mid-flight has no
+  /// discontinuity to cover and every press in a burst can safely replay it.
+  static const double _pulseScale = 0.30;
+
+  /// Entrance fade: the controller runs 1200 ms, but the visible fade occupies
+  /// only its last 780 ms (Interval 0.35–1.0) — the chevron stays transparent
+  /// for ~420 ms so the slide is under way before the glyphs arrive, and the
+  /// fade itself is LINEAR: an ease-out ramp hits two-thirds opacity in the
+  /// first third of the fade and reads as a pop-in, which is exactly the
+  /// "it's just appearing" review. A steady ramp is what reads as a fade.
+  static const Duration _fadeInDuration = Duration(milliseconds: 2400);
+  static const Curve _fadeInCurveShape = Interval(0.35, 1.0, curve: Curves.linear);
+  static const Duration _slideDuration = Duration(milliseconds: 8000);
+  static const Duration _pulseDuration = Duration(milliseconds: 1200);
+
+  /// Position gate for the chevron's own fade, in slide-progress fractions.
+  /// The inward displacement (96 dp) is wider than the number's slot, so the
+  /// chevron overlaps the number until roughly 62% of the travel; past that
+  /// it fades in with a steady ramp through the whole glide tail, reaching
+  /// full opacity exactly as it comes to rest. (62%→100% of an 1800 ms
+  /// easeInOutSine slide ≈ 760 ms of fade.) The readout hold
+  /// (_skipFeedbackDuration) is sized to let this complete.
+  static const double _chevronFadeStart = 0.62;
+  static const double _chevronFadeEnd = 1.0;
+
+  /// Fixed minimum so the digit count changing (e.g. "5s" -> "15s") doesn't
+  /// reflow the row and shift the number; it just grows away from the chevron.
+  static const double _labelMinWidth = 72;
+
+  /// Stroked text draws past the glyph advance the framework measures, so the
+  /// outermost keyline needs slack or it gets sliced.
+  static const double _labelOutlineBleed = 4;
+  static const double _labelOutlineWidth = 3;
+
+  /// Dark keyline behind each glyph, centred on its edge and NOT offset — half
+  /// the width lands outside the glyph, half is covered by the fill on top, so
+  /// it reads as a caption-style outline rather than a drop shadow.
+  static const double _outlineStrokeScale = 1.5;
+  static Color get _outlineColor => Colors.black.withValues(alpha: 0.25);
 
   @override
   State<DoubleTapFeedback> createState() => _DoubleTapFeedbackState();
 }
 
-class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with SingleTickerProviderStateMixin {
-  /// The chevron drifts the way the seek goes while the readout targets visible
-  /// opacity, looping so a held key reads as continuous travel.
-  ///
-  /// Deliberately never restarted per press: key repeats arrive every few tens
-  /// of milliseconds, far faster than the cycle, so restarting would pin the
-  /// chevron at the start of its nudge for the whole burst. No per-press kick is
-  /// needed anyway - a same-direction press changes the amount, and a direction
-  /// flip flips the chevron and the side it sits on.
-  late final AnimationController _drift;
+class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with TickerProviderStateMixin {
+  /// 0 = inward origin, 1 = rest. Fresh arrivals snap to 0 and glide in; a
+  /// repeat press keeps gliding from wherever the chevron currently sits.
+  late final AnimationController _slide;
+  late final Animation<double> _slideCurve;
+
+  /// 0 → 1 per press; the pulse is (1 - value), so scale starts at +18% and
+  /// settles back to rest.
+  late final AnimationController _pulse;
+  late final Animation<double> _pulseCurve;
+
+  /// Entrance fade for the NUMBER. The chevron is not part of this fade: it
+  /// starts its slide on top of the number's slot, so its visibility is
+  /// position-gated instead — see _buildChevron.
+  late final AnimationController _fadeIn;
+  late final Animation<double> _fadeInCurve;
+
+  bool _shownForward = false;
 
   @override
   void initState() {
     super.initState();
-    _drift = AnimationController(duration: DoubleTapFeedback._driftPeriod, vsync: this);
-    _syncDriftAnimation();
+    _slide = AnimationController(vsync: this, duration: DoubleTapFeedback._slideDuration);
+    _slideCurve = CurvedAnimation(parent: _slide, curve: Curves.easeInOutSine);
+    _pulse = AnimationController(vsync: this, duration: DoubleTapFeedback._pulseDuration);
+    // Rest = fully settled (scale 1.0). A fresh arrival must not inherit the
+    // popped size just because no pulse has run yet.
+    _pulse.value = 1.0;
+    _pulseCurve = CurvedAnimation(parent: _pulse, curve: Curves.linear);
+    _fadeIn = AnimationController(vsync: this, duration: DoubleTapFeedback._fadeInDuration);
+    _fadeInCurve = CurvedAnimation(parent: _fadeIn, curve: DoubleTapFeedback._fadeInCurveShape);
+    _shownForward = widget.isForward;
+    widget.nonce.addListener(_onPress);
+    if (widget.animate) _onArrival(fresh: true);
   }
 
   @override
   void didUpdateWidget(DoubleTapFeedback oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _syncDriftAnimation();
-  }
-
-  void _syncDriftAnimation() {
-    if (widget.animate == _drift.isAnimating) return;
-    if (widget.animate) {
-      _drift.repeat();
-    } else {
-      _drift.stop();
+    // The nonce listener runs before the parent rebuilds, so a direction flip
+    // still carries the old isForward there and cannot see the flip. The
+    // rebuild is where the flip becomes knowable: replay that side's whole
+    // arrival — slide from its own inward origin plus the entrance fade, with
+    // no pop. A same-side re-raise MID-fade is a repeat press: _onPress
+    // already extended the glide and popped. A re-raise after the fade has
+    // fully run out (still mounted, animate false→true) is an "it appears
+    // again" moment and replays the entrance too.
+    if (oldWidget.isForward != widget.isForward || (!oldWidget.animate && widget.animate)) {
+      _onArrival(fresh: true);
     }
   }
 
   @override
   void dispose() {
-    _drift.dispose();
+    widget.nonce.removeListener(_onPress);
+    _slide.dispose();
+    _pulse.dispose();
+    _fadeIn.dispose();
     super.dispose();
   }
 
-  /// The chevron never disappears; it only brightens as it travels.
-  static const double _minChevronOpacity = 0.7;
+  /// A fresh arrival plays that side's full entrance: fade in from nothing,
+  /// slide from its inward origin. A repeat press on the same side instead
+  /// extends the current glide and pops the pulse — no fade replay.
+  void _onArrival({required bool fresh}) {
+    if (fresh || _shownForward != widget.isForward) {
+      _shownForward = widget.isForward;
+      _slide.value = 0;
+      _fadeIn.forward(from: 0);
+    }
+    _slide.forward();
+  }
 
-  /// Share of the cycle spent travelling outward, the rest returning.
-  static const double _outwardFraction = 0.7;
+  void _onPress() {
+    if (!mounted || !widget.animate) return;
+    // The widget's isForward is stale until the parent rebuilds; the press's
+    // own direction arrives through [DoubleTapFeedback.pressForward] before
+    // the nonce fires. A flip resolves at didUpdateWidget as a full entrance
+    // (fade + slide, no pop); only a same-side press on a showing readout pops.
+    if (widget.pressForward.value != _shownForward) return;
+    _slide.forward();
+    _pulse.forward(from: 0);
+  }
 
-  static const List<Shadow> _legibility = [Shadow(color: Colors.black87, blurRadius: 6)];
-
-  Widget _buildChevron(BuildContext context) {
+  Widget _buildChevron(BuildContext context, double chevronHeight) {
     return AnimatedBuilder(
-      animation: _drift,
+      animation: Listenable.merge([_slideCurve, _pulseCurve]),
       builder: (context, child) {
-        // Most of the cycle is the outward stroke; the return is brief, so the
-        // eye reads travel in the seek direction rather than a symmetric wobble.
-        // Both ends rest at zero, so the wrap needs no fade to hide a snap - the
-        // chevron is a persistent cue, never a blinking one.
-        final phase = _drift.value;
-        final travel = phase < _outwardFraction
-            ? Curves.easeOut.transform(phase / _outwardFraction)
-            : 1 - Curves.easeInOut.transform((phase - _outwardFraction) / (1 - _outwardFraction));
-        final dx = travel * DoubleTapFeedback._driftDistance(context) * (widget.isForward ? 1 : -1);
-        return Transform.translate(
-          offset: Offset(dx, 0),
-          child: Opacity(opacity: _minChevronOpacity + (1 - _minChevronOpacity) * travel, child: child),
+        final progress = _slideCurve.value;
+        final inward = (widget.isForward ? -1.0 : 1.0) * DoubleTapFeedback._slideDistance * (1 - progress);
+        final scale = 1 + (1 - _pulseCurve.value) * DoubleTapFeedback._pulseScale;
+        // The chevron begins its slide on top of the number's slot (the
+        // inward displacement is wider than the number is), so its fade is
+        // driven by POSITION, not the clock: it stays invisible while it
+        // overlaps the number and fades in with a steady ramp only once it
+        // has physically slid past it. Fully visible just before the slide
+        // comes to rest.
+        final opacity =
+            ((progress - DoubleTapFeedback._chevronFadeStart) /
+                    (DoubleTapFeedback._chevronFadeEnd - DoubleTapFeedback._chevronFadeStart))
+                .clamp(0.0, 1.0);
+        return Opacity(
+          key: const ValueKey('seekChevronOpacity'),
+          opacity: opacity,
+          child: Transform.translate(
+            key: const ValueKey('seekChevronSlide'),
+            offset: Offset(inward, 0),
+            child: Transform.scale(key: const ValueKey('seekChevronPulse'), scale: scale, child: child),
+          ),
         );
       },
-      child: AppIcon(
-        widget.isForward ? Symbols.chevron_right_rounded : Symbols.chevron_left_rounded,
-        fill: 1,
-        color: Colors.white,
-        size: DoubleTapFeedback._chevronSize(context),
-        shadows: _legibility,
+      child: CustomPaint(
+        size: Size(DoubleTapFeedback._chevronWidth, chevronHeight),
+        painter: _SeekChevronPainter(forward: widget.isForward),
       ),
     );
   }
@@ -143,42 +256,144 @@ class _DoubleTapFeedbackState extends State<DoubleTapFeedback> with SingleTicker
   @override
   Widget build(BuildContext context) {
     final isForward = widget.isForward;
+    final dpr = MediaQuery.devicePixelRatioOf(context);
     final amountStyle = TextStyle(
       color: Colors.white,
       fontSize: DoubleTapFeedback._labelSize(context),
-      fontWeight: .bold,
-      shadows: _legibility,
+      fontWeight: FontWeight.w900,
     );
 
-    return Align(
-      alignment: isForward ? Alignment.centerRight : Alignment.centerLeft,
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: DoubleTapFeedback._horizontalInset(context)),
-        child: Row(
-          mainAxisSize: .min,
-          children: [
-            // Chevron leads on the side the seek travels toward.
-            if (!isForward) ...[_buildChevron(context), const SizedBox(width: 6)],
-            ValueListenableBuilder<int>(
-              valueListenable: widget.seconds,
-              builder: (context, seconds, _) {
-                // The amount is also the live-region leaf. Keeping the listener
-                // here updates text and semantics without rebuilding the chevron.
-                return Semantics(
-                  container: true,
-                  liveRegion: true,
-                  excludeSemantics: true,
-                  label: isForward
-                      ? t.videoControls.seekForwardButton(seconds: seconds)
-                      : t.videoControls.seekBackwardButton(seconds: seconds),
-                  child: Text(formatSkipFeedbackLabel(seconds), style: amountStyle),
-                );
-              },
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final chevronHeight = DoubleTapFeedback._chevronHeight(context, constraints.maxHeight);
+        return Align(
+          alignment: isForward ? Alignment.centerRight : Alignment.centerLeft,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: DoubleTapFeedback._horizontalInset(context)),
+            child: Row(
+              mainAxisSize: .min,
+              children: [
+                // Chevron leads on the side the seek travels toward. It fades
+                // on its own position-gated schedule, not the number's clock.
+                if (!isForward) ...[_buildChevron(context, chevronHeight), const SizedBox(width: 8)],
+                FadeTransition(
+                  opacity: _fadeInCurve,
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: widget.seconds,
+                    builder: (context, seconds, _) {
+                      // The amount is also the live-region leaf. Keeping the listener
+                      // here updates text and semantics without rebuilding the chevron.
+                      return Semantics(
+                        container: true,
+                        liveRegion: true,
+                        excludeSemantics: true,
+                        label: isForward
+                            ? t.videoControls.seekForwardButton(seconds: seconds)
+                            : t.videoControls.seekBackwardButton(seconds: seconds),
+                        child: _OutlinedAmountLabel(
+                          label: formatSkipFeedbackLabel(seconds),
+                          style: amountStyle,
+                          devicePixelRatio: dpr,
+                          growTowardChevron: !isForward,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                if (isForward) ...[const SizedBox(width: 8), _buildChevron(context, chevronHeight)],
+              ],
             ),
-            if (isForward) ...[const SizedBox(width: 6), _buildChevron(context)],
-          ],
-        ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// The burst total with silo's caption-style keyline: a stroked copy of the
+/// text underneath the filled copy. Both copies share identical text and
+/// constraints so the fill lands exactly on the outline.
+class _OutlinedAmountLabel extends StatelessWidget {
+  final String label;
+  final TextStyle style;
+  final double devicePixelRatio;
+
+  /// Which side the chevron sits on: digit growth extends away from it.
+  final bool growTowardChevron;
+
+  const _OutlinedAmountLabel({
+    required this.label,
+    required this.style,
+    required this.devicePixelRatio,
+    required this.growTowardChevron,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final textAlign = growTowardChevron ? TextAlign.left : TextAlign.right;
+    final outlineStyle = style.copyWith(
+      foreground: Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = DoubleTapFeedback._labelOutlineWidth * devicePixelRatio
+        ..strokeJoin = StrokeJoin.round
+        ..color = DoubleTapFeedback._outlineColor,
+    );
+
+    Widget text(TextStyle s) => Text(label, style: s, maxLines: 1, softWrap: false, textAlign: textAlign);
+
+    return Padding(
+      // Stroked text draws past the glyph advance, so the outermost keyline
+      // needs slack or it gets sliced.
+      padding: const EdgeInsets.symmetric(horizontal: DoubleTapFeedback._labelOutlineBleed),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: DoubleTapFeedback._labelMinWidth),
+        // Both copies share identical text and width so the fill lands exactly
+        // on the outline.
+        child: IntrinsicWidth(child: Stack(children: [text(outlineStyle), text(style)])),
       ),
     );
   }
+}
+
+/// Custom-drawn chevron: tall and skinny, white stroke over a dark keyline.
+class _SeekChevronPainter extends CustomPainter {
+  final bool forward;
+
+  _SeekChevronPainter({required this.forward});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final strokeWidth = DoubleTapFeedback._chevronStrokeWidth;
+    final path = ui.Path();
+    if (forward) {
+      // ">" — vertex on the skipped-to side, arms opening back the way we came.
+      path.moveTo(0, 0);
+      path.lineTo(size.width, size.height / 2);
+      path.lineTo(0, size.height);
+    } else {
+      // "<" — vertex on the left, arms open to the right.
+      path.moveTo(size.width, 0);
+      path.lineTo(0, size.height / 2);
+      path.lineTo(size.width, size.height);
+    }
+
+    void draw(double width, Color color) {
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = width
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..color = color,
+      );
+    }
+
+    // Keyline first, fill on top.
+    draw(strokeWidth * DoubleTapFeedback._outlineStrokeScale, DoubleTapFeedback._outlineColor);
+    draw(strokeWidth, Colors.white);
+  }
+
+  @override
+  bool shouldRepaint(_SeekChevronPainter oldDelegate) => oldDelegate.forward != forward;
 }

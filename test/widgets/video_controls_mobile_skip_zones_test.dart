@@ -157,7 +157,7 @@ void main() {
     await doubleTap(tester, forwardZoneOf(tester));
 
     expect(player.seeks, [const Duration(minutes: 10, seconds: 10)]);
-    expect(find.text('10s'), findsOneWidget);
+    expect(find.text('10s'), findsNWidgets(2), reason: 'fill + keyline copies');
     expect(chrome.controlsVisible, isFalse, reason: 'skipping must not raise the chrome');
 
     await settleFeedback(tester);
@@ -169,7 +169,7 @@ void main() {
     await doubleTap(tester, backwardZoneOf(tester));
 
     expect(player.seeks, [const Duration(minutes: 9, seconds: 50)]);
-    expect(find.text('10s'), findsOneWidget);
+    expect(find.text('10s'), findsNWidgets(2), reason: 'fill + keyline copies');
 
     await settleFeedback(tester);
   });
@@ -239,7 +239,11 @@ void main() {
       const Duration(minutes: 10, seconds: 20),
       const Duration(minutes: 10, seconds: 30),
     ]);
-    expect(find.text('30s'), findsOneWidget, reason: 'consecutive skips accumulate into one readout');
+    expect(
+      find.text('30s'),
+      findsNWidgets(2),
+      reason: 'consecutive skips accumulate into one readout (fill + keyline copies)',
+    );
 
     // The last tap completed a pair, so nothing is pending to raise the chrome.
     await tester.pump(const Duration(milliseconds: 400));
@@ -313,7 +317,7 @@ void main() {
     await doubleTap(tester, forwardZoneOf(tester));
 
     expect(find.byType(DoubleTapFeedback), findsOneWidget, reason: 'the tap that just seeked owns the readout now');
-    expect(find.text('10s'), findsOneWidget, reason: 'and it counts only its own step');
+    expect(find.text('10s'), findsNWidgets(2), reason: 'and it counts only its own step (fill + keyline copies)');
 
     await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowRight);
     await tester.pump();
