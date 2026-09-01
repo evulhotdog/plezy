@@ -30,6 +30,7 @@ import '../../../utils/formatters.dart';
 import '../../../utils/live_tv_grouping.dart';
 import '../../../utils/live_tv_matching.dart';
 import '../../../utils/platform_detector.dart';
+import '../../../utils/tone_mapped_logo_image.dart';
 import '../../../widgets/app_icon.dart';
 import '../../../widgets/app_menu.dart';
 import '../../../widgets/clickable_cursor.dart';
@@ -1876,6 +1877,12 @@ class _ChannelCellState extends State<_ChannelCell> {
                                 width: widget.channelColumnWidth - 16,
                                 height: widget.rowHeight - 16,
                                 fit: BoxFit.contain,
+                                logoToneTarget: logoToneTargetFor(
+                                  surface: widget.isFocused ? theme.colorScheme.primary : tk.surface,
+                                  foreground: widget.isFocused
+                                      ? theme.colorScheme.onPrimary
+                                      : theme.colorScheme.onSurface,
+                                ),
                               )
                             : widget.fallbackBuilder(),
                       ),

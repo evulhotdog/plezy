@@ -529,6 +529,14 @@ class SettingsService extends BaseSharedPreferencesService {
     'cellular_quality_preset',
     values: TranscodeQualityPreset.values,
   );
+
+  /// Serve a source that already fits under the selected quality preset by
+  /// direct playing the file instead of transcoding it (#2152). Off restores
+  /// the pre-#2152 behavior — any non-original preset always transcodes — for
+  /// users who deliberately request a server encode to sidestep a decoder
+  /// limitation (#2193). Plex-only by design: MediaBrowser servers make the
+  /// equivalent direct-play-vs-transcode call server-side.
+  static const directPlayCoveredQuality = BoolPref('direct_play_covered_quality', defaultValue: true);
   static const musicQualityPreset = EnumPref<AudioQualityPreset>(
     'music_quality_preset',
     values: AudioQualityPreset.values,
@@ -555,6 +563,16 @@ class SettingsService extends BaseSharedPreferencesService {
   static const gestureBrightnessSwipe = BoolPref('gesture_brightness_swipe', defaultValue: true);
   static const gestureVolumeSwipe = BoolPref('gesture_volume_swipe', defaultValue: true);
   static const gesturePinchToZoom = BoolPref('gesture_pinch_to_zoom', defaultValue: true);
+
+  /// Remember the brightness level set by the swipe gesture (#2178). When on,
+  /// playback starts at [rememberedBrightnessLevel] instead of the system
+  /// level; the player exit still restores the pre-playback brightness.
+  static const rememberBrightnessLevel = BoolPref('remember_brightness_level');
+
+  /// Last brightness the swipe gesture settled on while
+  /// [rememberBrightnessLevel] was enabled. Negative means "never set";
+  /// device-local runtime state, so reset-only in the registry.
+  static const rememberedBrightnessLevel = DoublePref('remembered_brightness_level', defaultValue: -1.0);
 
   /// Deinterlace interlaced video via mpv's `deinterlace=auto` (#2149).
   /// mpv-only by design: ExoPlayer has no filter chain.
@@ -1128,6 +1146,8 @@ class SettingsService extends BaseSharedPreferencesService {
     gestureBrightnessSwipe,
     gestureVolumeSwipe,
     gesturePinchToZoom,
+    rememberBrightnessLevel,
+    directPlayCoveredQuality,
     deinterlace,
     playerAlwaysOnTop,
     specialsOrdering,
@@ -1230,6 +1250,7 @@ class SettingsService extends BaseSharedPreferencesService {
     customExternalPlayers,
     customRelayUrl,
     companionRemoteLastHostAddress,
+    rememberedBrightnessLevel,
   ];
 
   /// Settings that "Reset All Settings" actually resets.
