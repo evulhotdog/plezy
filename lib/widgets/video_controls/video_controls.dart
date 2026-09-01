@@ -827,6 +827,7 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
   ));
   double? _edgeAdjustmentStartValue;
   bool _edgeAdjustmentWasActive = false;
+  MobileEdgeAdjustmentSide? _edgeAdjustmentActiveSide;
   MobileEdgeAdjustmentSide? _pendingEdgeAdjustmentSide;
   double _pendingEdgeAdjustmentDelta = 0.0;
   int? _pendingEdgeAdjustmentGeneration;
@@ -982,12 +983,12 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
     _listenToPlayingState();
     _listenToCompleted();
     _checkPipSupport();
-    _deviceAdjustmentService.onResume = _refreshDeviceAdjustmentValues;
+    _deviceAdjustmentService.onResume = _handleDeviceAdjustmentResume;
     _deviceAdjustmentService.setRestoreSuppressed(_pipService.isPipActive.value);
     _pipService.isPipActive.addListener(_onEdgeAdjustmentPipChanged);
     _edgeAdjustmentLifecycleListener = AppLifecycleListener(
-      onResume: _refreshDeviceAdjustmentValues,
-      onShow: _refreshDeviceAdjustmentValues,
+      onResume: _handleDeviceAdjustmentResume,
+      onShow: _handleDeviceAdjustmentResume,
       onHide: _cancelEdgeAdjustmentGesture,
       onPause: _cancelEdgeAdjustmentGesture,
     );
@@ -1023,7 +1024,7 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
       // shortcut.
       if (!_focusPlayPauseIfKeyboardMode()) _claimPlayerSurfaceFocus();
       if (PlatformDetector.isMobile(context) && !PlatformDetector.isTV()) {
-        _refreshDeviceAdjustmentValues();
+        _handleDeviceAdjustmentResume();
       }
     });
   }
