@@ -1036,7 +1036,30 @@ void main() {
         onActivate: () => activateCount++,
       );
 
-      expect(find.text('${t.videoControls.skipIntro} (3)'), findsOneWidget);
+      expect(
+        find.text(t.videoControls.skipIntro),
+        findsOneWidget,
+        reason: 'the countdown number is gone; the fill carries the timer',
+      );
+      Rect fillRect(WidgetTester tester) =>
+          tester.getRect(find.descendant(of: find.byType(SkipMarkerButton), matching: find.byType(ColoredBox)));
+      final pillRect = tester.getRect(find.descendant(of: find.byType(SkipMarkerButton), matching: find.byType(Stack)));
+      expect(
+        fillRect(tester).height,
+        moreOrLessEquals(pillRect.height, epsilon: 0.5),
+        reason: 'the fill spans the full pill height - widthFactor alone collapses to zero height',
+      );
+      expect(
+        fillRect(tester).width,
+        moreOrLessEquals(pillRect.width * 0.4, epsilon: 0.5),
+        reason: 'fill anchored at the last timer tick',
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(
+        fillRect(tester).width,
+        greaterThan(pillRect.width * 0.4),
+        reason: 'the fill advances on the frame clock between ticks',
+      );
 
       await tester.tap(find.byType(InkWell));
       await tester.pump();
@@ -1100,11 +1123,60 @@ void main() {
       );
 
       expect(find.text(t.videoControls.skipIntro), findsOneWidget);
+      expect(find.byType(FractionallySizedBox), findsNothing, reason: 'no fill when the countdown is not running');
 
       await tester.tap(find.byType(InkWell));
       await tester.pump();
 
       expect(activateCount, 1);
+    });
+
+    testWidgets('re-anchoring the fill does not snap it backward', (tester) async {
+      final focusNode = FocusNode();
+      addTearDown(focusNode.dispose);
+
+      Future<void> pumpWithProgress(double progress) => tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(extensions: const [testMonoTokens]),
+          home: Scaffold(
+            body: Center(
+              child: SkipMarkerButton(
+                marker: MediaMarker(id: 1, type: 'intro', startTimeOffset: 10000, endTimeOffset: 45000),
+                playerDuration: const Duration(minutes: 20),
+                hasNextEpisode: false,
+                isAutoSkipActive: true,
+                shouldShowAutoSkip: true,
+                autoSkipDelay: 5,
+                autoSkipProgress: progress,
+                focusNode: focusNode,
+                onActivate: () {},
+                onFocusDown: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+
+      Rect fillRect() =>
+          tester.getRect(find.descendant(of: find.byType(SkipMarkerButton), matching: find.byType(ColoredBox)));
+
+      await pumpWithProgress(0.4);
+      await tester.pump(const Duration(milliseconds: 200));
+      final before = fillRect().width;
+
+      // The countdown timer's next tick arrives: the fill re-anchors from the
+      // new progress. It must land exactly where the sweep already was - the
+      // pre-inflated duration cancels forward()'s remaining-fraction trim.
+      await pumpWithProgress(0.44);
+      await tester.pump();
+      expect(
+        fillRect().width,
+        moreOrLessEquals(before, epsilon: 1.0),
+        reason: 'no snap at the re-anchor - one continuous sweep',
+      );
+
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(fillRect().width, greaterThan(before), reason: 'and the sweep keeps advancing after the re-anchor');
     });
 
     testWidgets('uses the localized marker label', (tester) async {
