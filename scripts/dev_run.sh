@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Fast iteration loop: run the current tree on the Shield in --profile mode
+# Fast iteration loop: run the current tree on the Shield in --debug mode
 # and keep it attached for HOT RELOAD. Unlike build_install.sh (release APK +
 # install), this is the sub-second feel-tuning loop: change a constant, save,
 # hit 'r' in the flutter terminal, replay the gesture on the TV. No rebuild,
 # no reinstall — the app is installed once, then 'r' pushes Dart changes.
 #
-#   scripts/dev_run.sh [--device HOST:PORT] [-c] [--] [flutter run args...]
-#
-# In the attached flutter session:
+# --debug (not --profile): hot reload/restart are only wired in debug builds —
+# flutter_tools' shouldUseHotMode requires buildInfo.isDebug. Profile builds
+# run AOT and the interactive console omits r/R entirely.
 #   r    hot reload (reapplies Dart changes incl. static consts; ~1s)
 #   R    hot restart (rebuilds widget tree from scratch)
 #   q    quit and detach (leaves the app installed)
@@ -87,8 +87,7 @@ if [ -z "$pubspec_vc" ] || [ "$pubspec_vc" -lt "$installed_vc" ]; then
   echo "       x.y.z+$((installed_vc + 1)) or higher once, then rerun. Hot reload then needs no reinstall." >&2
   exit 1
 fi
-# Verify the installed build is signed with this machine's debug keystore
-# (what every local --profile build uses). A mismatch would force adb uninstall
+# (what every local --debug build uses). A mismatch would force adb uninstall
 # and wipe app data/logins, so abort before trying.
 apk_path="$(adb -s "$DEVICE" shell pm path "$PACKAGE" | sed 's/^package://;s/\r$//' | head -1)"
 tmpdir="$(mktemp -d)"
@@ -118,6 +117,6 @@ if [ "$CLEAR_LOG" -eq 1 ]; then
   echo "==> logcat cleared"
 fi
 
-echo "==> flutter run --profile on $DEVICE (installed v$installed_vc, pubspec +$pubspec_vc)"
+echo "==> flutter run --debug on $DEVICE (installed v$installed_vc, pubspec +$pubspec_vc)"
 echo "    hot keys in the session: r=hot reload  R=hot restart  q=quit"
-exec flutter run --profile -d "$DEVICE" "${FLUTTER_ARGS[@]}"
+exec flutter run --debug -d "$DEVICE" "${FLUTTER_ARGS[@]}"
