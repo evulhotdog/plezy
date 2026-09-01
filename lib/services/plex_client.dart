@@ -23,6 +23,8 @@ import '../media/ids.dart';
 import '../media/media_server_client.dart';
 import '../media/playback_report_metadata.dart';
 import '../media/server_capabilities.dart';
+import '../media/library_change_event.dart';
+import 'library_events/plex_library_event_socket.dart';
 import '../utils/external_ids.dart';
 import 'bif_thumbnail_service.dart';
 import 'file_info_parser.dart';
@@ -3372,6 +3374,14 @@ class PlexClient
     videoTranscoding: serverSupportsVideoTranscodingCached,
   );
 
+  /// Realtime library-change push (`/:/websockets/notifications`). Reads the
+  /// base URL and token live so endpoint failover lands on the channel's next
+  /// reconnect. [LibraryEventService] owns the returned channel's lifecycle.
+  @override
+  LibraryEventChannel? createLibraryEventChannel() {
+    return PlexLibraryEventSocket(serverId: serverId, baseUrl: () => _http.baseUrl, token: () => config.token);
+  }
+
   @override
   Future<List<MediaLibrary>> fetchLibraries() async {
     final libraries = await _getLibraries();
@@ -3773,7 +3783,10 @@ class PlexClient
   /// Whether [preset] asks for anything the selected version does not already
   /// deliver. A preset is a ceiling, so a version that fits under it is served
   /// by the file itself and playback direct plays instead of paying for an
-  /// encode that can only cost more (issue #2152).
+  /// encode that can only cost more (issue #2152). Turning
+  /// [SettingsService.directPlayCoveredQuality] off disables that shortcut, so
+  /// a non-original preset always transcodes for users who deliberately want
+  /// the server's encode over the source (issue #2193).
   ///
   /// The comparison cannot be left to the server: PMS answers `directPlay=1`
   /// with "Direct play OK" whatever bitrate cap the request carries (measured
@@ -3782,6 +3795,8 @@ class PlexClient
   /// too, folding the preset's bitrate into its own direct-play profile.
   bool _presetNeedsTranscode(TranscodeQualityPreset preset, PlexVideoPlaybackData data) {
     if (preset.isOriginal) return false;
+    final settings = SettingsService.instanceOrNull;
+    if (settings != null && !settings.read(SettingsService.directPlayCoveredQuality)) return true;
     final version = data.selectedMediaIndex < data.availableVersions.length
         ? data.availableVersions[data.selectedMediaIndex]
         : null;
