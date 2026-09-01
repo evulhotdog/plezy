@@ -59,7 +59,7 @@ plugins {
 }
 
 val mpvVersion = "v1.2.2"
-val mpvSha256 = "0207bb46660c239268c4c17bddc7fd570722513344b136c7c5336aca135dc8a0"
+val mpvSha256 = "71e5e5785047ba734de0c7159e8074c14c97021b20c0e8d3b223f7224edcaca4"
 val mpvDir = layout.buildDirectory.dir("libmpv").get().asFile
 val mpvAar = "libmpv-release.aar"
 val mpvUrl = "https://github.com/edde746/libmpv-android/releases/download/$mpvVersion/$mpvAar"
