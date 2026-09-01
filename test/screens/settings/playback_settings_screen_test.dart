@@ -54,6 +54,8 @@ void main() {
 
     final title = find.text('Shader Preset');
     await tester.scrollUntilVisible(title, 500, scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(title);
+    await tester.pumpAndSettle();
 
     final tile = find.widgetWithText(ListTile, 'Shader Preset');
     expect(find.descendant(of: tile, matching: find.textContaining('Everywhere')), findsOneWidget);

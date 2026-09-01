@@ -651,6 +651,18 @@ class Translations$settings$en {
 	/// en: 'Rewind on Resume'
 	String get rewindOnResume => 'Rewind on Resume';
 
+	/// en: 'Subtitles on Rewind'
+	String get tempSubtitlesOnRewind => 'Subtitles on Rewind';
+
+	/// en: 'Show subtitles over the rewound span when you skip back, then turn them off once playback returns'
+	String get tempSubtitlesOnRewindDescription => 'Show subtitles over the rewound span when you skip back, then turn them off once playback returns';
+
+	/// en: 'New Turn-off Point on Each Skip'
+	String get tempSubtitlesAnchorMoves => 'New Turn-off Point on Each Skip';
+
+	/// en: 'While rewind subtitles are showing, each additional skip-back moves the turn-off point to that press'
+	String get tempSubtitlesAnchorMovesDescription => 'While rewind subtitles are showing, each additional skip-back moves the turn-off point to that press';
+
 	/// en: '${seconds} seconds'
 	String secondsUnit({required Object seconds}) => '${seconds} seconds';
 
@@ -7147,6 +7159,10 @@ extension on Translations {
 			'settings.smallSkipDuration' => 'Small Skip Duration',
 			'settings.largeSkipDuration' => 'Large Skip Duration',
 			'settings.rewindOnResume' => 'Rewind on Resume',
+			'settings.tempSubtitlesOnRewind' => 'Subtitles on Rewind',
+			'settings.tempSubtitlesOnRewindDescription' => 'Show subtitles over the rewound span when you skip back, then turn them off once playback returns',
+			'settings.tempSubtitlesAnchorMoves' => 'New Turn-off Point on Each Skip',
+			'settings.tempSubtitlesAnchorMovesDescription' => 'While rewind subtitles are showing, each additional skip-back moves the turn-off point to that press',
 			'settings.secondsUnit' => ({required Object seconds}) => '${seconds} seconds',
 			'settings.defaultSleepTimer' => 'Default Sleep Timer',
 			'settings.minutesUnit' => ({required Object minutes}) => '${minutes} minutes',
@@ -7465,12 +7481,12 @@ extension on Translations {
 			'fileInfo.filePresent' => 'File Present',
 			'fileInfo.fileReadable' => 'Readable by Server',
 			'fileInfo.streamPath' => 'Stream Path',
+			_ => null,
+		} ?? switch (path) {
 			'fileInfo.optimizedForStreaming' => 'Optimized for Streaming',
 			'fileInfo.has64bitOffsets' => '64-bit Offsets',
 			'fileInfo.protocol' => 'Protocol',
 			'fileInfo.mediaType' => 'Media Type',
-			_ => null,
-		} ?? switch (path) {
 			'fileInfo.sourceKind' => 'Source Kind',
 			'fileInfo.optimizedVersion' => 'Optimized Version',
 			'fileInfo.optimizationTarget' => 'Optimization Target',
@@ -7979,12 +7995,12 @@ extension on Translations {
 			'libraries.groupings.tracks' => 'Tracks',
 			'libraries.groupings.folders' => 'Folders',
 			'libraries.filterCategories.genre' => 'Genre',
+			_ => null,
+		} ?? switch (path) {
 			'libraries.filterCategories.year' => 'Year',
 			'libraries.filterCategories.contentRating' => 'Content Rating',
 			'libraries.filterCategories.tag' => 'Tag',
 			'libraries.filterCategories.unwatched' => 'Unwatched',
-			_ => null,
-		} ?? switch (path) {
 			'libraries.filterCategories.unplayed' => 'Unplayed',
 			'libraries.filterCategories.favorites' => 'Favorites',
 			'libraries.sortLabels.title' => 'Title',
@@ -8493,12 +8509,12 @@ extension on Translations {
 			'downloads.syncRuleUpdated' => 'Sync rule updated',
 			'downloads.syncRuleRemoved' => 'Sync rule removed',
 			'downloads.syncRuleAndDownloadsRemoved' => 'Sync rule and associated downloads removed',
+			_ => null,
+		} ?? switch (path) {
 			'downloads.syncRuleCleanupBusy' => 'Sync rules are currently updating. Try again in a moment.',
 			'downloads.syncRuleCleanupUnavailable' => 'Associated downloads could not be identified safely. Reconnect the server and try again, or remove the rule without deleting downloads.',
 			'downloads.syncedNewEpisodes' => ({required Object count, required Object title}) => 'Synced ${count} new episodes for ${title}',
 			'downloads.activeSyncRules' => 'Sync rules',
-			_ => null,
-		} ?? switch (path) {
 			'downloads.noSyncRules' => 'No sync rules',
 			'downloads.manageSyncRule' => 'Manage sync',
 			'downloads.editEpisodeCount' => 'Episode count',
