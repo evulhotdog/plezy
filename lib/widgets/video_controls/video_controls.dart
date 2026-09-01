@@ -1335,6 +1335,7 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
                                                       metadata: widget.metadata,
                                                       chapters: _chapters,
                                                       chaptersLoaded: _chaptersLoaded,
+                                                      markers: _markers,
                                                       showChapterMarkersOnTimeline: _showChapterMarkersOnTimeline,
                                                       seekTimeSmall: _seekTimeSmall,
                                                       trackChapterControls: _buildTrackChapterControlsWidget(
