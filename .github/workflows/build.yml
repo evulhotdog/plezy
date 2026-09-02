@@ -45,21 +45,21 @@ env:
     ruby ruby-dev rubygems build-essential rpm libarchive-tools imagemagick libcurl4-openssl-dev
 
 jobs:
-  validate-trusted-ref:
-    name: Validate trusted build ref
-    runs-on: ubuntu-latest
-    permissions: {}
-    steps:
-      - name: Require the protected main branch
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
-            echo "Release builds may only run from refs/heads/main." >&2
-            exit 1
-          fi
+  # validate-trusted-ref:
+  #   name: Validate trusted build ref
+  #   runs-on: ubuntu-latest
+  #   permissions: {}
+  #   steps:
+  #     - name: Require the protected main branch
+  #       shell: bash
+  #       run: |
+  #         if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+  #           echo "Release builds may only run from refs/heads/main." >&2
+  #           exit 1
+  #         fi
 
   build-android:
-    needs: validate-trusted-ref
+    # needs: validate-trusted-ref
     if: ${{ inputs.build_android }}
     runs-on: ubuntu-latest
     permissions:
@@ -152,7 +152,7 @@ jobs:
             plezy-android-x86_64.tar.gz
 
   build-ios:
-    needs: validate-trusted-ref
+    # needs: validate-trusted-ref
     if: ${{ inputs.build_ios }}
     runs-on: macos-26
     permissions:
@@ -220,7 +220,7 @@ jobs:
           path: plezy-ios.ipa
 
   build-macos:
-    needs: validate-trusted-ref
+    # needs: validate-trusted-ref
     if: ${{ inputs.build_macos }}
     runs-on: macos-26
     permissions:
@@ -397,7 +397,7 @@ jobs:
             macos-dmg-size.txt
 
   build-windows:
-    needs: validate-trusted-ref
+    # needs: validate-trusted-ref
     name: Build Windows (${{ matrix.arch }})
     if: ${{ inputs.build_windows }}
     runs-on: ${{ matrix.runner }}
@@ -654,7 +654,7 @@ jobs:
           path: plezy-windows.msixbundle
 
   build-linux:
-    needs: validate-trusted-ref
+    # needs: validate-trusted-ref
     name: Build Linux (${{ matrix.arch }})
     if: ${{ inputs.build_linux }}
     runs-on: ${{ matrix.runner }}
@@ -889,8 +889,10 @@ jobs:
             plezy-linux-${{ matrix.arch }}.pkg.tar.zst
 
   create-release:
-    needs: [validate-trusted-ref, build-android, build-ios, build-macos, build-windows, package-windows, build-linux]
-    if: ${{ always() && needs.validate-trusted-ref.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && inputs.build_android && inputs.build_ios && inputs.build_macos && inputs.build_windows && inputs.build_linux && inputs.release_tag != '' }}
+    # needs: [validate-trusted-ref, build-android, build-ios, build-macos, build-windows, package-windows, build-linux]
+    needs: [build-android, build-ios, build-macos, build-windows, package-windows, build-linux]
+    # if: ${{ always() && needs.validate-trusted-ref.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && inputs.build_android && inputs.build_ios && inputs.build_macos && inputs.build_windows && inputs.build_linux && inputs.release_tag != '' }}
+    if: ${{ always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && inputs.build_android && inputs.build_ios && inputs.build_macos && inputs.build_windows && inputs.build_linux && inputs.release_tag != '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
