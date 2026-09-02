@@ -102,6 +102,7 @@ extension _VideoPlayerPlaybackPromptMethods on VideoPlayerScreenState {
       _setPlayerState(() {
         _episode.showPlayNextDialog = true;
         _episode.autoPlayCountdown.value = autoPlayEnabled ? countdownSeconds : -1;
+        _episode.autoPlayCountdownStart = autoPlayEnabled ? countdownSeconds : 0;
       });
 
       // Auto-focus Play Next button on TV when dialog appears (only in keyboard/TV mode)
@@ -183,6 +184,7 @@ extension _VideoPlayerPlaybackPromptMethods on VideoPlayerScreenState {
       // spaces transient-failure retries (see completion_latch.dart), so a
       // user preference of 0 must not collapse it into a hot retry loop.
       _episode.autoPlayCountdown.value = countdown ? 5 : -1;
+      _episode.autoPlayCountdownStart = countdown ? 5 : 0;
     });
 
     if (isKeyboardMode) {

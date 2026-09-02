@@ -44,6 +44,7 @@ void main() {
           visible: true,
           nextEpisode: _episode(),
           autoPlayCountdown: _countdown(),
+          autoPlayCountdownTotal: 5,
           cancelFocusNode: cancelFocusNode,
           confirmFocusNode: confirmFocusNode,
           chromeController: chromeController,
@@ -77,6 +78,7 @@ void main() {
           visible: true,
           nextEpisode: _episode(),
           autoPlayCountdown: _countdown(),
+          autoPlayCountdownTotal: 5,
           cancelFocusNode: cancelFocusNode,
           confirmFocusNode: confirmFocusNode,
           chromeController: chromeController,
@@ -115,6 +117,7 @@ void main() {
           visible: true,
           nextEpisode: _episode(),
           autoPlayCountdown: _countdown(),
+          autoPlayCountdownTotal: 5,
           cancelFocusNode: cancelFocusNode,
           confirmFocusNode: confirmFocusNode,
           chromeController: chromeController,
@@ -146,6 +149,7 @@ void main() {
           visible: true,
           nextEpisode: _episode(),
           autoPlayCountdown: _countdown(),
+          autoPlayCountdownTotal: 5,
           cancelFocusNode: cancelFocusNode,
           confirmFocusNode: confirmFocusNode,
           chromeController: chromeController,
@@ -198,11 +202,12 @@ void main() {
     semantics.dispose();
   });
 
-  // The whole point of moving the countdown to a ValueListenable: the digit
+  // The whole point of moving the countdown to a ValueListenable: the timer
   // updates without the parent being rebuilt. Previously a 1 Hz timer called a
   // root setState on the player screen, which re-created PlexVideoControls
-  // (~50 props) and rebuilt the entire chrome once per second.
-  testWidgets('play next countdown digit updates without rebuilding the parent', (tester) async {
+  // (~50 props) and rebuilt the entire chrome once per second. The fill sweep
+  // carries the timer on the button's face through the same channel.
+  testWidgets('play next countdown fill advances without rebuilding the parent', (tester) async {
     PipService().isPipActive.value = false;
     final chromeController = PlayerChromeController();
     final cancelFocusNode = FocusNode(debugLabel: 'TestCancel');
@@ -223,6 +228,7 @@ void main() {
               visible: true,
               nextEpisode: _episode(),
               autoPlayCountdown: countdown,
+              autoPlayCountdownTotal: 5,
               cancelFocusNode: cancelFocusNode,
               confirmFocusNode: confirmFocusNode,
               chromeController: chromeController,
@@ -234,24 +240,32 @@ void main() {
       ),
     );
 
-    expect(find.text('5'), findsOneWidget);
+    // No digit: the label is static and the fill carries the timer.
+    expect(find.text('Play Next'), findsOneWidget);
+    expect(find.text('5'), findsNothing);
+    Finder fillBox() =>
+        find.byWidgetPredicate((widget) => widget is ColoredBox && widget.color == const Color(0x47000000));
+    double fillWidth() => tester.getSize(fillBox()).width;
+    final buttonWidth = tester.getSize(find.byType(FilledButton)).width;
+
+    expect(fillWidth(), moreOrLessEquals(0, epsilon: 0.5), reason: 'the sweep starts empty at the countdown start');
     final buildsAfterMount = parentBuilds;
 
     countdown.value = 4;
     await tester.pump();
-    expect(find.text('4'), findsOneWidget);
-    expect(find.text('5'), findsNothing);
+    expect(fillWidth(), closeTo(buttonWidth * 0.2, 0.5), reason: 'fill anchored at the last timer tick');
 
     countdown.value = 3;
     await tester.pump();
-    expect(find.text('3'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(fillWidth(), greaterThan(buttonWidth * 0.4), reason: 'the fill advances on the frame clock between ticks');
 
     expect(parentBuilds, buildsAfterMount, reason: 'the countdown must not rebuild anything above the overlay');
   });
 
-  // -1 is the "no automatic advance" sentinel: the prompt shows its action
-  // label instead of a digit, which is the manual play-next case.
-  testWidgets('play next prompt shows its label instead of a digit when the countdown is absent', (tester) async {
+  // -1 is the "no automatic advance" sentinel: the prompt keeps its action
+  // label - no digit, no fill - which is the manual play-next case.
+  testWidgets('play next prompt keeps its label and hides the fill when the countdown is absent', (tester) async {
     PipService().isPipActive.value = false;
     final chromeController = PlayerChromeController();
     final cancelFocusNode = FocusNode(debugLabel: 'TestCancel');
@@ -268,6 +282,7 @@ void main() {
           visible: true,
           nextEpisode: _episode(),
           autoPlayCountdown: countdown,
+          autoPlayCountdownTotal: 5,
           cancelFocusNode: cancelFocusNode,
           confirmFocusNode: confirmFocusNode,
           chromeController: chromeController,
@@ -276,12 +291,16 @@ void main() {
         ),
       ),
     );
-    expect(find.text('2'), findsOneWidget);
+    Finder fillBox() =>
+        find.byWidgetPredicate((widget) => widget is ColoredBox && widget.color == const Color(0x47000000));
+    expect(fillBox(), findsOneWidget, reason: 'the fill tracks the running countdown');
+    expect(find.text('2'), findsNothing, reason: 'the digit is gone; the fill carries the timer');
 
     countdown.value = -1;
     await tester.pump();
     expect(find.text('-1'), findsNothing);
-    expect(find.text('2'), findsNothing);
+    expect(fillBox(), findsNothing, reason: 'no fill when the countdown is absent');
+    expect(find.text('Play Next'), findsOneWidget);
   });
 
   // The play-next card paints the next episode's video-frame still behind the
@@ -307,6 +326,7 @@ void main() {
           visible: true,
           nextEpisode: episode,
           autoPlayCountdown: _countdown(),
+          autoPlayCountdownTotal: 5,
           cancelFocusNode: cancelFocusNode,
           confirmFocusNode: confirmFocusNode,
           chromeController: chromeController,

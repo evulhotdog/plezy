@@ -39,6 +39,12 @@ class EpisodeSessionState {
   Timer? autoPlayTimer;
   final ValueNotifier<int> autoPlayCountdown = ValueNotifier<int>(5);
 
+  /// The seconds value the auto-play countdown started from (the
+  /// [SettingsService.playNextCountdown] preference, or the fixed retry
+  /// spacing). The Play Next prompt turns countdown/total into the fill
+  /// sweep's progress; 0 means no countdown is running.
+  int autoPlayCountdownStart = 0;
+
   /// Transient episode-transition failure retry (#1867). A failed in-place
   /// reload records the classified reason here so the play-next flow can
   /// distinguish a retryable server blip from a permanent failure. The
