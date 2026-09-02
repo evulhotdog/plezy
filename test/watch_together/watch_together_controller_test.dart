@@ -284,6 +284,46 @@ void main() {
     });
   });
 
+  test('rate reaches the room only when declared; a player rate event on the host is not a room change', () {
+    fakeAsync((async) {
+      final room = _Room(async, controlMode: ControlMode.anyone, guestControlMode: ControlMode.anyone);
+      room.hostStartsMedia();
+      room.guestJoinsMedia();
+      room.bothBecomeReady();
+      final delay = room.lastHostState().anchorHostTimeMs - room.nowMs();
+      async.elapse(Duration(milliseconds: delay + 100));
+      final statesBefore = room.hostService.outgoingLog.where((m) => m.type == SyncMessageType.state).length;
+
+      // The host's player reports a rate change nobody asked the room for
+      // (a default-speed apply, a late ack): the room rate must not move.
+      room.hostPlayer.emitRate(1.25);
+      async.flushMicrotasks();
+      expect(room.hostService.outgoingLog.where((m) => m.type == SyncMessageType.state).length, statesBefore);
+      expect(room.lastHostState().rate, 1.0);
+
+      // The host's screen declares a rate: broadcast with attribution.
+      room.host.onLocalRate(1.25);
+      async.flushMicrotasks();
+      expect(room.lastHostState().rate, 1.25);
+      expect(room.lastHostState().actionHint, PlaybackActionHint.rate);
+      expect(room.lastHostState().actorPeerId, 'host');
+      expect(room.host.roomRate, 1.25);
+
+      // The guest's screen declares one: a control request the host applies.
+      room.guestPlayer.emitRate(1.5);
+      async.flushMicrotasks();
+      expect(room.guestService.outgoingLog.where((m) => m.type == SyncMessageType.control), isEmpty);
+      room.guest.onLocalRate(1.5);
+      async.flushMicrotasks();
+      expect(room.hostPlayer.commandLog.last, 'rate:1.5');
+      expect(room.lastHostState().rate, 1.5);
+      expect(room.lastHostState().actorPeerId, 'guest');
+      async.elapse(const Duration(seconds: 1));
+      expect(room.guest.roomRate, 1.5);
+      room.dispose();
+    });
+  });
+
   test('guest controller starts clock-sync pings automatically', () {
     fakeAsync((async) {
       final room = _Room(async);
@@ -575,6 +615,113 @@ void main() {
         // broadcasting a playing anchor from a frozen player would stall every guest.
         expect(handled, isFalse);
         expect(room.hostPlayer.state.playing, isTrue, reason: 'nothing local happened');
+        room.dispose();
+      });
+    });
+  });
+
+  group('host transfer', () {
+    WatchSession sessionAs(SessionRole role) => WatchSession(
+      sessionId: 'ROOM1',
+      role: role,
+      controlMode: ControlMode.hostOnly,
+      state: SessionState.connected,
+      hostPeerId: 'guest',
+    );
+
+    test('mid-playback: the promoted guest re-anchors the room and the demoted host follows', () {
+      fakeAsync((async) {
+        final room = _Room(async);
+        room.hostStartsMedia();
+        room.guestJoinsMedia();
+        room.bothBecomeReady();
+        async.elapse(const Duration(seconds: 3));
+        expect(room.hostPlayer.state.playing, isTrue);
+        expect(room.guestPlayer.state.playing, isTrue);
+        final originalKey = room.lastHostState().mediaKey;
+        final statesBefore = room.hostService.outgoingLog.where((m) => m.type == SyncMessageType.state).length;
+
+        // The relay reassigned authority: each side applies its own hostChanged.
+        room.host.applyHostChange(sessionAs(SessionRole.guest));
+        room.guest.applyHostChange(sessionAs(SessionRole.host));
+        async.flushMicrotasks();
+
+        // The demoted host falls in line: it asks the new authority for state.
+        expect(room.hostService.outgoingLog.any((m) => m.type == SyncMessageType.requestState), isTrue);
+
+        // The promoted guest re-runs the epoch gate and both players resume.
+        async.elapse(const Duration(seconds: 5));
+        final adopted = room.guestService.outgoingLog.lastWhere((m) => m.type == SyncMessageType.state).state!;
+        expect(adopted.phase, PlaybackPhase.playing);
+        expect(adopted.mediaKey, originalKey);
+        expect(room.hostPlayer.state.playing, isTrue);
+        expect(room.guestPlayer.state.playing, isTrue);
+
+        // The old host's coordinator is gone — it authors no further states.
+        expect(room.hostService.outgoingLog.where((m) => m.type == SyncMessageType.state).length, statesBefore);
+        room.dispose();
+      });
+    });
+
+    test('a paused room stays paused across the handoff', () {
+      fakeAsync((async) {
+        final room = _Room(async);
+        room.hostStartsMedia();
+        room.guestJoinsMedia();
+        room.bothBecomeReady();
+        async.elapse(const Duration(seconds: 3));
+        expect(room.hostPlayer.state.playing, isTrue);
+
+        // The host pauses the room before handing it over.
+        room.hostPlayer.emitPlaying(false);
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 1));
+        expect(room.lastHostState().phase, PlaybackPhase.paused);
+        expect(room.guestPlayer.state.playing, isFalse);
+        final guestPlays = room.guestPlayer.commandLog.where((c) => c == 'play').length;
+        final hostPlays = room.hostPlayer.commandLog.where((c) => c == 'play').length;
+
+        room.host.applyHostChange(sessionAs(SessionRole.guest));
+        room.guest.applyHostChange(sessionAs(SessionRole.host));
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 5));
+
+        final adopted = room.guestService.outgoingLog.lastWhere((m) => m.type == SyncMessageType.state).state!;
+        expect(adopted.phase, PlaybackPhase.paused, reason: 'a host change is not a play intent');
+        expect(room.hostPlayer.state.playing, isFalse);
+        expect(room.guestPlayer.state.playing, isFalse);
+        expect(room.guestPlayer.commandLog.where((c) => c == 'play').length, guestPlays);
+        expect(room.hostPlayer.commandLog.where((c) => c == 'play').length, hostPlays);
+        room.dispose();
+      });
+    });
+
+    test('a promoted guest adopts the room rate, not its own mid-correction player rate', () {
+      fakeAsync((async) {
+        final room = _Room(async);
+        room.hostStartsMedia();
+        room.guestJoinsMedia();
+        room.bothBecomeReady();
+        async.elapse(const Duration(seconds: 3));
+
+        // The room runs at 1.25; the guest's player momentarily reports
+        // something else (a nudge, a stray event). The room rate is what the
+        // new host must carry forward — not its player's snapshot.
+        room.host.onLocalRate(1.25);
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 1));
+        expect(room.lastHostState().rate, 1.25);
+        room.guestPlayer.emitRate(1.3);
+        async.flushMicrotasks();
+
+        room.host.applyHostChange(sessionAs(SessionRole.guest));
+        room.guest.applyHostChange(sessionAs(SessionRole.host));
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 5));
+
+        final adopted = room.guestService.outgoingLog.lastWhere((m) => m.type == SyncMessageType.state).state!;
+        expect(adopted.rate, 1.25);
+        expect(room.guest.roomRate, 1.25);
         room.dispose();
       });
     });

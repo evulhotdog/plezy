@@ -9,11 +9,23 @@ extension _PlexVideoControlsPlaybackInputMethods on _PlexVideoControlsState {
     if (_suppressRateToastUntil != null && DateTime.now().isBefore(_suppressRateToastUntil!)) {
       return;
     }
+    // A Watch Together drift nudge moves the rate a few percent for a few
+    // seconds; that is the sync layer's business, not a speed change to
+    // announce. Keep the last reported rate so the nudge's exit is silent too.
+    if (_syncOwnsRate()) return;
     final prev = _lastReportedRate;
     if (prev != null && (prev - newRate).abs() < 0.005) return;
     _lastReportedRate = newRate;
     final icon = newRate >= 1.0 ? Symbols.fast_forward_rounded : Symbols.slow_motion_video_rounded;
     widget.toastController.show(icon, formatPlaybackRate(newRate));
+  }
+
+  bool _syncOwnsRate() {
+    try {
+      return context.read<WatchTogetherProvider>().syncOwnsRate;
+    } catch (_) {
+      return false; // No session provider above this surface.
+    }
   }
 
   void _seekToPreviousChapter() => unawaited(_seekToChapter(forward: false));
@@ -376,6 +388,34 @@ extension _PlexVideoControlsPlaybackInputMethods on _PlexVideoControlsState {
     unawaited(_readEdgeAdjustmentValue(MobileEdgeAdjustmentSide.right));
   }
 
+  /// Player entry and resume both funnel here: reapply the remembered swipe
+  /// brightness (#2178) before re-reading the gesture baselines, so the next
+  /// swipe starts from the level actually on screen.
+  void _handleDeviceAdjustmentResume() => unawaited(_applyRememberedBrightnessThenRefresh());
+
+  Future<void> _applyRememberedBrightnessThenRefresh() async {
+    final settings = SettingsService.instance;
+    if (settings.read(SettingsService.rememberBrightnessLevel) &&
+        settings.read(SettingsService.gestureBrightnessSwipe)) {
+      final value = settings.read(SettingsService.rememberedBrightnessLevel);
+      // Negative means "never set"; the write below only stores 0.0-1.0.
+      if (value >= 0.0 && value <= 1.0) {
+        // Await the queued set so the baseline read cannot race past it.
+        await _deviceAdjustmentService.setBrightness(value);
+      }
+    }
+    if (mounted) _refreshDeviceAdjustmentValues();
+  }
+
+  /// Persist the level a finished brightness swipe settled on (#2178). Runs
+  /// once per gesture, not per write, to spare SharedPreferences the drag spam.
+  void _persistRememberedBrightness() {
+    if (!SettingsService.instance.read(SettingsService.rememberBrightnessLevel)) return;
+    final value = _lastKnownBrightness;
+    if (value == null) return;
+    unawaited(SettingsService.instance.write(SettingsService.rememberedBrightnessLevel, value));
+  }
+
   Future<double?> _readEdgeAdjustmentValue(MobileEdgeAdjustmentSide side) {
     ++_edgeAdjustmentBaselineGeneration;
     _edgeAdjustmentBaselineSide = side;
@@ -499,6 +539,7 @@ extension _PlexVideoControlsPlaybackInputMethods on _PlexVideoControlsState {
     _edgeAdjustmentIndicatorHideTimer?.cancel();
     _edgeAdjustmentIndicatorClearTimer?.cancel();
     _edgeAdjustmentWasActive = true;
+    _edgeAdjustmentActiveSide = side;
     _edgeAdjustmentStartValue = startValue;
     _lastEdgeAdjustmentWriteAt = null;
     _lastEdgeAdjustmentWriteValue = null;
@@ -545,7 +586,11 @@ extension _PlexVideoControlsPlaybackInputMethods on _PlexVideoControlsState {
 
   void _finishEdgeAdjustment({required bool suppressTap}) {
     if (suppressTap) _suppressTouchTaps();
+    if (_edgeAdjustmentWasActive && _edgeAdjustmentActiveSide == MobileEdgeAdjustmentSide.left) {
+      _persistRememberedBrightness();
+    }
     _edgeAdjustmentWasActive = false;
+    _edgeAdjustmentActiveSide = null;
     _edgeAdjustmentStartValue = null;
     _lastEdgeAdjustmentWriteAt = null;
     _lastEdgeAdjustmentWriteValue = null;
@@ -802,6 +847,11 @@ extension _PlexVideoControlsPlaybackInputMethods on _PlexVideoControlsState {
     _toggleControls();
   }
 
+  /// Apply a user-requested playback rate through the owning screen when it
+  /// supplies a handler (Watch Together declares it to the room), else
+  /// directly on the player.
+  Future<void> _requestRate(double rate) => (widget.onRateRequested ?? widget.player.setRate)(rate);
+
   /// Handle long-press start - activate 2x speed
   void _handleLongPressStart() {
     if (!widget.canControl || widget.isLive) return;
@@ -811,7 +861,7 @@ extension _PlexVideoControlsPlaybackInputMethods on _PlexVideoControlsState {
       _rateBeforeLongPress = widget.player.state.rate;
       _showSpeedIndicator = true;
     });
-    widget.player.setRate(2.0);
+    unawaited(_requestRate(2.0));
   }
 
   /// Handle long-press end - restore original speed
@@ -820,7 +870,7 @@ extension _PlexVideoControlsPlaybackInputMethods on _PlexVideoControlsState {
     // Swallow the rate-restore emission so the stream-driven toast doesn't
     // flash as the rate snaps back to the prior value.
     _suppressRateToastUntil = DateTime.now().add(const Duration(milliseconds: 250));
-    widget.player.setRate(_rateBeforeLongPress ?? 1.0);
+    unawaited(_requestRate(_rateBeforeLongPress ?? 1.0));
     _setControlsState(() {
       _isLongPressing = false;
       _rateBeforeLongPress = null;

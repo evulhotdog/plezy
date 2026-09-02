@@ -633,6 +633,12 @@ class Translations$settings$en {
 	/// en: 'Same as Default Quality'
 	String get cellularQualitySameAsDefault => 'Same as Default Quality';
 
+	/// en: 'Play Smaller Videos at Original Quality'
+	String get directPlayCoveredQuality => 'Play Smaller Videos at Original Quality';
+
+	/// en: 'Direct play videos already within the quality limit instead of transcoding them'
+	String get directPlayCoveredQualityDescription => 'Direct play videos already within the quality limit instead of transcoding them';
+
 	/// en: 'Music Quality'
 	String get musicQualityTitle => 'Music Quality';
 
@@ -1214,6 +1220,12 @@ class Translations$settings$en {
 
 	/// en: 'Pinch on the video to zoom in or out'
 	String get gesturePinchToZoomDescription => 'Pinch on the video to zoom in or out';
+
+	/// en: 'Remember Brightness Level'
+	String get rememberBrightnessLevel => 'Remember Brightness Level';
+
+	/// en: 'Start playback at the brightness set by the last swipe'
+	String get rememberBrightnessLevelDescription => 'Start playback at the brightness set by the last swipe';
 
 	/// en: 'Controls'
 	String get controls => 'Controls';
@@ -4028,6 +4040,27 @@ class Translations$watchTogether$en {
 	/// en: 'You are the host'
 	String get youAreHost => 'You are the host';
 
+	/// en: 'Make host'
+	String get makeHost => 'Make host';
+
+	/// en: 'Transfer host?'
+	String get makeHostQuestion => 'Transfer host?';
+
+	/// en: '${name} will control playback and drive the session for everyone.'
+	String makeHostConfirm({required Object name}) => '${name} will control playback and drive the session for everyone.';
+
+	/// en: 'Transfer'
+	String get transfer => 'Transfer';
+
+	/// en: '${name} is now the host'
+	String hostChangedTo({required Object name}) => '${name} is now the host';
+
+	/// en: 'You are now the host'
+	String get youAreNowHost => 'You are now the host';
+
+	/// en: 'Couldn't make ${name} the host'
+	String hostTransferFailed({required Object name}) => 'Couldn\'t make ${name} the host';
+
 	/// en: 'Watching with others'
 	String get watchingWithOthers => 'Watching with others';
 
@@ -4123,6 +4156,9 @@ class Translations$watchTogether$en {
 
 	/// en: '${name} changed the playback position'
 	String participantSeeked({required Object name}) => '${name} changed the playback position';
+
+	/// en: '${name} set the speed to ${speed}'
+	String participantChangedSpeed({required Object name, required Object speed}) => '${name} set the speed to ${speed}';
 
 	/// en: '${name} is buffering'
 	String participantBuffering({required Object name}) => '${name} is buffering';
@@ -7153,6 +7189,8 @@ extension on Translations {
 			'settings.defaultQualityTitle' => 'Default Quality',
 			'settings.cellularQualityTitle' => 'Default Quality on Cellular',
 			'settings.cellularQualitySameAsDefault' => 'Same as Default Quality',
+			'settings.directPlayCoveredQuality' => 'Play Smaller Videos at Original Quality',
+			'settings.directPlayCoveredQualityDescription' => 'Direct play videos already within the quality limit instead of transcoding them',
 			'settings.musicQualityTitle' => 'Music Quality',
 			'settings.subtitleStyling' => 'Subtitle Styling',
 			'settings.subtitleStylingDescription' => 'Customize subtitle appearance',
@@ -7347,6 +7385,8 @@ extension on Translations {
 			'settings.gestureVolumeSwipeDescription' => 'Swipe up or down on the right edge to adjust volume',
 			'settings.gesturePinchToZoom' => 'Pinch to Zoom',
 			'settings.gesturePinchToZoomDescription' => 'Pinch on the video to zoom in or out',
+			'settings.rememberBrightnessLevel' => 'Remember Brightness Level',
+			'settings.rememberBrightnessLevelDescription' => 'Start playback at the brightness set by the last swipe',
 			'settings.controls' => 'Controls',
 			'settings.rememberPlayerChanges' => 'Remember Player Changes',
 			'settings.rememberPlayerChangesDescription' => 'Where a change made during playback is saved and reapplied from',
@@ -8405,6 +8445,13 @@ extension on Translations {
 			'watchTogether.host' => 'Host',
 			'watchTogether.hostBadge' => 'HOST',
 			'watchTogether.youAreHost' => 'You are the host',
+			'watchTogether.makeHost' => 'Make host',
+			'watchTogether.makeHostQuestion' => 'Transfer host?',
+			'watchTogether.makeHostConfirm' => ({required Object name}) => '${name} will control playback and drive the session for everyone.',
+			'watchTogether.transfer' => 'Transfer',
+			'watchTogether.hostChangedTo' => ({required Object name}) => '${name} is now the host',
+			'watchTogether.youAreNowHost' => 'You are now the host',
+			'watchTogether.hostTransferFailed' => ({required Object name}) => 'Couldn\'t make ${name} the host',
 			'watchTogether.watchingWithOthers' => 'Watching with others',
 			'watchTogether.endSession' => 'End Session',
 			'watchTogether.leaveSession' => 'Leave Session',
@@ -8437,6 +8484,7 @@ extension on Translations {
 			'watchTogether.participantPaused' => ({required Object name}) => '${name} paused',
 			'watchTogether.participantResumed' => ({required Object name}) => '${name} resumed',
 			'watchTogether.participantSeeked' => ({required Object name}) => '${name} changed the playback position',
+			'watchTogether.participantChangedSpeed' => ({required Object name, required Object speed}) => '${name} set the speed to ${speed}',
 			'watchTogether.participantBuffering' => ({required Object name}) => '${name} is buffering',
 			'watchTogether.participantNeedsUpdate' => ({required Object name}) => '${name} is on an older app version — sync unavailable',
 			'watchTogether.resumingWithout' => ({required Object name}) => 'Resuming without ${name}',
@@ -8501,6 +8549,8 @@ extension on Translations {
 			'downloads.keepNUnwatched' => ({required Object count}) => 'Keep ${count} unwatched',
 			'downloads.editSyncRule' => 'Edit sync rule',
 			'downloads.removeSyncRule' => 'Remove sync rule',
+			_ => null,
+		} ?? switch (path) {
 			'downloads.removeSyncRuleConfirm' => ({required Object title}) => 'Stop syncing "${title}"? Downloaded episodes will be kept.',
 			'downloads.removeListSyncRuleConfirm' => ({required Object title}) => 'Stop syncing "${title}"?',
 			'downloads.deleteSyncRuleDownloads' => 'Also delete associated downloads',

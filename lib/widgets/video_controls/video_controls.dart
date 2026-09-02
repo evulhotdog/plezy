@@ -97,6 +97,7 @@ import '../../models/shader_preset.dart';
 import '../../providers/playback_state_provider.dart';
 import '../../providers/shader_provider.dart';
 import '../../services/shader_service.dart';
+import '../../watch_together/providers/watch_together_provider.dart';
 
 part 'parts/key_events.dart';
 part 'parts/markers.dart';
@@ -588,6 +589,11 @@ class PlexVideoControls extends StatefulWidget {
   /// playback state around the native player seek.
   final Future<void> Function(Duration position)? onSeekRequested;
 
+  /// Called for app-level playback-rate requests (speed sheet, keyboard
+  /// shortcuts, long-press 2x) so the owning screen can apply the rate and
+  /// declare it to a Watch Together room. Falls back to [Player.setRate].
+  final Future<void> Function(double rate)? onRateRequested;
+
   /// Called for app-level transport requests so the owning screen can track
   /// user playback intent separately from transient buffering state, and
   /// announce the accepted command.
@@ -723,6 +729,7 @@ class PlexVideoControls extends StatefulWidget {
     this.onSubtitleTrackChanged,
     this.onSecondarySubtitleTrackChanged,
     this.onSeekRequested,
+    this.onRateRequested,
     this.onPlayPauseRequested,
     this.onSeekCompleted,
     this.onBack,
@@ -827,6 +834,7 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
   ));
   double? _edgeAdjustmentStartValue;
   bool _edgeAdjustmentWasActive = false;
+  MobileEdgeAdjustmentSide? _edgeAdjustmentActiveSide;
   MobileEdgeAdjustmentSide? _pendingEdgeAdjustmentSide;
   double _pendingEdgeAdjustmentDelta = 0.0;
   int? _pendingEdgeAdjustmentGeneration;
@@ -982,12 +990,12 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
     _listenToPlayingState();
     _listenToCompleted();
     _checkPipSupport();
-    _deviceAdjustmentService.onResume = _refreshDeviceAdjustmentValues;
+    _deviceAdjustmentService.onResume = _handleDeviceAdjustmentResume;
     _deviceAdjustmentService.setRestoreSuppressed(_pipService.isPipActive.value);
     _pipService.isPipActive.addListener(_onEdgeAdjustmentPipChanged);
     _edgeAdjustmentLifecycleListener = AppLifecycleListener(
-      onResume: _refreshDeviceAdjustmentValues,
-      onShow: _refreshDeviceAdjustmentValues,
+      onResume: _handleDeviceAdjustmentResume,
+      onShow: _handleDeviceAdjustmentResume,
       onHide: _cancelEdgeAdjustmentGesture,
       onPause: _cancelEdgeAdjustmentGesture,
     );
@@ -1023,7 +1031,7 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
       // shortcut.
       if (!_focusPlayPauseIfKeyboardMode()) _claimPlayerSurfaceFocus();
       if (PlatformDetector.isMobile(context) && !PlatformDetector.isTV()) {
-        _refreshDeviceAdjustmentValues();
+        _handleDeviceAdjustmentResume();
       }
     });
   }

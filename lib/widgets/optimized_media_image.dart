@@ -10,6 +10,7 @@ import '../services/device_performance.dart';
 import '../utils/app_logger.dart';
 import '../utils/media_image_helper.dart';
 import '../utils/obfuscation_utils.dart';
+import '../utils/tone_mapped_logo_image.dart';
 
 /// Tracks recent image load failures to log a periodic summary instead of
 /// spamming per-image. Resets after [_logInterval] so recurring issues
@@ -71,6 +72,16 @@ class OptimizedMediaImage extends StatelessWidget {
   /// Black tint applied at image paint time without an opacity save layer.
   final Animation<double>? artworkDim;
 
+  /// Recolors light-toned logo artwork toward this theme foreground so it
+  /// stays legible on light surfaces (see [ToneMappedLogoImage]). Applies to
+  /// both the network and local-file decode paths.
+  final Color? logoToneTarget;
+
+  /// Forwards [ToneMappedLogoImage.remapMixed]: heroes pass false so marks
+  /// with significant color render untouched; the guide's channel cells keep
+  /// the default and remap mixed marks too.
+  final bool logoToneRemapMixed;
+
   const OptimizedMediaImage._({
     super.key,
     this.client,
@@ -87,6 +98,8 @@ class OptimizedMediaImage extends StatelessWidget {
     this.imageType = ImageType.poster,
     this.localFilePath,
     this.artworkDim,
+    this.logoToneTarget,
+    this.logoToneRemapMixed = true,
     this.cacheMissingLocalFile = false,
   });
 
@@ -107,6 +120,8 @@ class OptimizedMediaImage extends StatelessWidget {
     ImageType imageType,
     String? localFilePath,
     Animation<double>? artworkDim,
+    Color? logoToneTarget,
+    bool logoToneRemapMixed,
     bool cacheMissingLocalFile,
   }) = OptimizedMediaImage._;
 
@@ -159,6 +174,8 @@ class OptimizedMediaImage extends StatelessWidget {
     Alignment alignment = Alignment.center,
     IconData? fallbackIcon,
     String? localFilePath,
+    Color? logoToneTarget,
+    bool logoToneRemapMixed = true,
     Animation<double>? artworkDim,
   }) : this._(
          key: key,
@@ -175,6 +192,8 @@ class OptimizedMediaImage extends StatelessWidget {
          fallbackIcon: fallbackIcon ?? Symbols.video_library_rounded,
          imageType: ImageType.thumb,
          localFilePath: localFilePath,
+         logoToneTarget: logoToneTarget,
+         logoToneRemapMixed: logoToneRemapMixed,
          artworkDim: artworkDim,
        );
 
@@ -237,11 +256,15 @@ class OptimizedMediaImage extends StatelessWidget {
       displayHeight: scaledHeight.isFinite && scaledHeight > 0 ? scaledHeight.round() : 0,
       imageType: imageType,
     );
+    final bounded = MediaImageHelper.boundedDecode(FileImage(file), memWidth: memWidth, memHeight: memHeight);
+    final provider = logoToneTarget == null
+        ? bounded
+        : ToneMappedLogoImage(bounded, target: logoToneTarget!, remapMixed: logoToneRemapMixed);
 
     return _withArtworkDim(
       artworkDim,
       (tint) => Image(
-        image: MediaImageHelper.boundedDecode(FileImage(file), memWidth: memWidth, memHeight: memHeight),
+        image: provider,
         width: width,
         height: height,
         // Artwork is decorative: the enclosing card exposes one merged node
@@ -310,6 +333,8 @@ class OptimizedMediaImage extends StatelessWidget {
       imageUrl: imageUrl,
       memWidth: memWidth,
       memHeight: memHeight,
+      logoToneTarget: logoToneTarget,
+      logoToneRemapMixed: logoToneRemapMixed,
     );
 
     // Reduced tier: swap in directly, no fade machinery at all.
@@ -450,6 +475,7 @@ class ClearLogoImage extends StatelessWidget {
     required this.fallbackBuilder,
     this.alignment = Alignment.centerLeft,
     this.fadeInDuration = const Duration(milliseconds: 300),
+    this.logoToneTarget,
   });
 
   final MediaServerClient? client;
@@ -459,6 +485,10 @@ class ClearLogoImage extends StatelessWidget {
   final WidgetBuilder fallbackBuilder;
   final Alignment alignment;
   final Duration fadeInDuration;
+
+  /// See [OptimizedMediaImage.logoToneTarget]; heroes pass a target when the
+  /// backdrop behind the logo is scrimmed toward a light background.
+  final Color? logoToneTarget;
 
   @override
   Widget build(BuildContext context) {
@@ -477,6 +507,10 @@ class ClearLogoImage extends StatelessWidget {
               alignment: alignment,
               imageType: ImageType.heroLogo,
               fadeInDuration: fadeInDuration,
+              logoToneTarget: logoToneTarget,
+              // Clear logos render on heroes where a mark's color is part of
+              // its identity: mixed-tone marks stay untouched.
+              logoToneRemapMixed: false,
               placeholder: (context, _) => const SizedBox.shrink(),
               errorWidget: (context, _, _) => fallbackBuilder(context),
             ),
