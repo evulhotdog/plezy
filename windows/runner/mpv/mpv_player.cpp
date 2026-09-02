@@ -1,6 +1,7 @@
 #include "mpv_player.h"
 
 #include <commctrl.h>
+#include <dxgi.h>
 #include <windowsx.h>
 
 #include <unordered_map>
@@ -25,6 +26,48 @@ struct InnerWindowSubclassState {
 };
 
 namespace {
+
+// Whether any GPU on this system is a Qualcomm Adreno.
+//
+// libplacebo regenerates its tone-mapping shader LUT whenever the tone-map
+// parameters change, and the reuse key (pl_tone_map_params_equal) includes the
+// frame's raw HDR metadata by exact float comparison. Two sources move it
+// every frame: dynamic peak detection (hdr-compute-peak), and HDR10+
+// per-scene metadata (scene_max/scene_avg/ootf), which mpv maps from decoder
+// side data on every frame. Qualcomm's D3D11 driver has no host-visible
+// upload path (its libplacebo caps report buf_transfer and max_mapped_size as
+// zero), so each regeneration costs tens of milliseconds: 4K HDR→SDR playback
+// starves to single-digit fps and the swinging tone curve reads as brightness
+// flicker (#2191). Initialize therefore silences both dynamic sources on this
+// GPU; tone mapping falls back to the static HDR10 mastering metadata and the
+// LUT is generated once.
+//
+// The whole adapter list is scanned rather than predicting mpv's choice: mpv
+// takes the DXGI default adapter, and no supported machine pairs an Adreno
+// with another GPU, so presence is equivalent to use. This also covers the
+// x64 build running emulated on Windows-on-ARM, which an architecture check
+// would miss.
+bool SystemHasQualcommGpu() {
+  // Qualcomm's Windows driver reports the FourCC 'QCOM' as its DXGI vendor
+  // id (seen in the wild on the Adreno X1-85); 0x5143 is Qualcomm's PCI-SIG
+  // id, matched in case a driver reports that instead.
+  constexpr UINT kQualcommFourCc = 0x4D4F4351;
+  constexpr UINT kQualcommPci = 0x5143;
+  IDXGIFactory1* factory = nullptr;
+  if (FAILED(::CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) return false;
+  bool found = false;
+  IDXGIAdapter1* adapter = nullptr;
+  for (UINT i = 0; !found && SUCCEEDED(factory->EnumAdapters1(i, &adapter)); ++i) {
+    DXGI_ADAPTER_DESC1 desc;
+    if (SUCCEEDED(adapter->GetDesc1(&desc))) {
+      found = desc.VendorId == kQualcommFourCc || desc.VendorId == kQualcommPci;
+    }
+    adapter->Release();
+    adapter = nullptr;
+  }
+  factory->Release();
+  return found;
+}
 
 // Adapts the shared, bounded mpv_node walk onto Flutter's encodable values.
 struct EncodableNodeBuilder {
@@ -581,9 +624,19 @@ bool MpvPlayer::Initialize(HWND view) {
     // Let mpv use display/context detection instead of forcing HDR signaling.
     mpv_set_option_string(mpv_, "target-colorspace-hint", plezy::mpv_common::TargetColorspaceHint(hdr_enabled_));
 
-    // Fallback tone mapping when display doesn't support HDR
+    // Fallback tone mapping when display doesn't support HDR. On Adreno,
+    // per-frame tone-map LUT regeneration is pathological — see
+    // SystemHasQualcommGpu — so both dynamic inputs to the LUT key are
+    // silenced: the peak detector, and HDR10+ per-scene metadata, which
+    // vf=format:hdr10plus=no zeroes before it reaches the renderer. Dolby
+    // Vision L1 metadata could still churn the LUT, but stripping it
+    // (dovi=no) would break profile-5 rendering outright, so it stays.
     mpv_set_option_string(mpv_, "tone-mapping", "auto");
-    mpv_set_option_string(mpv_, "hdr-compute-peak", "auto");
+    adreno_tone_map_workaround_ = SystemHasQualcommGpu();
+    mpv_set_option_string(mpv_, "hdr-compute-peak", adreno_tone_map_workaround_ ? "no" : "auto");
+    if (adreno_tone_map_workaround_) {
+      mpv_set_option_string(mpv_, "vf", "format:hdr10plus=no");
+    }
   }
 
   // When WASAPI becomes unavailable (sleep, device unplug), fall back to null
@@ -613,6 +666,10 @@ bool MpvPlayer::Initialize(HWND view) {
   // choosing to observe the device list.
   mpv_observe_property(mpv_, 0, "audio-device-list", MPV_FORMAT_NONE);
 
+  if (!audio_only_) {
+    hdr_probe_ = std::make_unique<HdrProbe>(mpv_, hwnd_, [this](const std::string& text) { LogHdrProbe(text); });
+  }
+
   // Start event loop.
   StartEventLoop();
 
@@ -621,6 +678,9 @@ bool MpvPlayer::Initialize(HWND view) {
 
 void MpvPlayer::Dispose() {
   StopEventLoop();
+  // Event thread is gone, so nothing ticks the probe; drop it while mpv_ and
+  // hwnd_ are still valid (its destructor only releases the DXGI factory).
+  hdr_probe_.reset();
 
   auto cancelled = pending_requests_.CancelAll();
   for (auto& callback : cancelled.status) {
@@ -751,6 +811,26 @@ void MpvPlayer::LogRecovery(const std::string& text) {
   SendEvent("log-message", data);
 }
 
+void MpvPlayer::LogHdrPipelineOnce() {
+  if (hdr_config_logged_ || audio_only_) return;
+  hdr_config_logged_ = true;
+  const char* text = adreno_tone_map_workaround_ ? "Qualcomm GPU: hdr-compute-peak=no, vf=format:hdr10plus=no"
+                                                 : "hdr-compute-peak=auto";
+  flutter::EncodableMap data;
+  data[flutter::EncodableValue("prefix")] = flutter::EncodableValue("hdr-config");
+  data[flutter::EncodableValue("level")] = flutter::EncodableValue("info");
+  data[flutter::EncodableValue("text")] = flutter::EncodableValue(text);
+  SendEvent("log-message", data);
+}
+
+void MpvPlayer::LogHdrProbe(const std::string& text) {
+  flutter::EncodableMap data;
+  data[flutter::EncodableValue("prefix")] = flutter::EncodableValue("hdr-probe");
+  data[flutter::EncodableValue("level")] = flutter::EncodableValue("info");
+  data[flutter::EncodableValue("text")] = flutter::EncodableValue(text);
+  SendEvent("log-message", data);
+}
+
 void MpvPlayer::TryAudioReload(const char* reason, int attempt, uint64_t request_generation) {
   LogRecovery("issuing ao-reload (reason=" + std::string(reason) + ", attempt " + std::to_string(attempt) + ")");
   const std::string reason_copy = reason;
@@ -802,6 +882,9 @@ void MpvPlayer::EventLoop() {
     // Runs on every iteration including wait timeouts: this ~100ms tick is
     // the clock that drives scheduled audio reload attempts.
     MaybeRunAudioRecovery();
+    // Ticks only while a VO is configured; a burst of events between two
+    // timeouts just delays the next sample, which is fine for a diagnostic.
+    if (hdr_probe_) hdr_probe_->Tick();
   }
 }
 
@@ -854,6 +937,12 @@ void MpvPlayer::HandleMpvEvent(mpv_event* event) {
     }
     case MPV_EVENT_FILE_LOADED: {
       audio_recovery_.SetFileLoaded(true);
+      // Deferred to here rather than Initialize: the Dart event callback is
+      // wired by the time a file loads, and the synthetic event bypasses the
+      // mpv log level, so the applied HDR pipeline options always land in an
+      // uploaded log (#2191 was undiagnosable without this).
+      LogHdrPipelineOnce();
+      if (hdr_probe_) hdr_probe_->OnFileLoaded();
       SendEvent("file-loaded");
       break;
     }
