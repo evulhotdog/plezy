@@ -22,6 +22,12 @@ class PlayerChromeController extends ChangeNotifier implements ValueListenable<b
   bool _hasFirstFrame = true;
   Duration _hideDelay = const Duration(seconds: 3);
   Timer? _hideTimer;
+
+  /// Fired on pointer movement over the player surface. The screen uses it to
+  /// stop the Play Next countdown: a moved cursor means the viewer wants to
+  /// choose themselves. Nullable; the controller stays agnostic of prompts.
+  VoidCallback? onPointerActivity;
+
   bool _pendingPlayPauseFocus = false;
   final Set<PlayerChromeHold> _holds = <PlayerChromeHold>{};
   final Stopwatch _pointerActivityStopwatch = Stopwatch()..start();
@@ -147,6 +153,8 @@ class PlayerChromeController extends ChangeNotifier implements ValueListenable<b
   }
 
   bool recordPointerActivity() {
+    onPointerActivity?.call();
+
     final nowMs = _pointerActivityStopwatch.elapsedMilliseconds;
     final shouldThrottle = _controlsVisible && nowMs - _lastPointerActivityMs < 120;
     if (shouldThrottle) return false;

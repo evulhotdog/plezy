@@ -208,6 +208,26 @@ extension _VideoPlayerPlaybackPromptMethods on VideoPlayerScreenState {
     });
   }
 
+  /// Any user interaction while the Play Next auto-play countdown is running
+  /// stops the timer but keeps the prompt up: the viewer takes over and
+  /// chooses without a time limit. Deliberately not [_cancelAutoPlay], which
+  /// dismisses the prompt entirely.
+  void _cancelPlayNextCountdownForInteraction() {
+    if (!_episode.showPlayNextDialog) return;
+    _episode.cancelAutoPlayCountdown();
+  }
+
+  /// HardwareKeyboard hook: any pressed key (d-pad, arrows, remote) cancels an
+  /// in-progress Play Next countdown. Non-consuming — the key still performs
+  /// its normal action, mirroring the controls' global handler that stops the
+  /// auto-skip countdown.
+  bool _handlePlayNextInteractionKey(KeyEvent event) {
+    if (!mounted) return false;
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
+    _cancelPlayNextCountdownForInteraction();
+    return false;
+  }
+
   void _dismissPlaybackPromptForBack() {
     if (_episode.showPlayNextDialog) {
       _cancelAutoPlay();

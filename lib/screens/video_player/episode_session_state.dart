@@ -45,6 +45,20 @@ class EpisodeSessionState {
   /// sweep's progress; 0 means no countdown is running.
   int autoPlayCountdownStart = 0;
 
+  /// Stops the auto-play countdown while keeping the prompt up for a manual
+  /// choice. Returns whether a running countdown was actually stopped —
+  /// interaction handlers call this repeatedly and only the first matters.
+  bool cancelAutoPlayCountdown() {
+    final timer = autoPlayTimer;
+    if (timer == null || !timer.isActive) return false;
+    timer.cancel();
+    // -1 is the no-countdown sentinel: the fill hides and the prompt reads
+    // as a plain manual choice for as long as the viewer leaves it up.
+    autoPlayCountdown.value = -1;
+    autoPlayCountdownStart = 0;
+    return true;
+  }
+
   /// Transient episode-transition failure retry (#1867). A failed in-place
   /// reload records the classified reason here so the play-next flow can
   /// distinguish a retryable server blip from a permanent failure. The
