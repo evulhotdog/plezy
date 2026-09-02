@@ -7,6 +7,7 @@ add_executable(${BINARY_NAME} WIN32
   "utils.cpp"
   "win32_window.cpp"
   "mpv/display_mode_manager.cpp"
+  "mpv/hdr_probe.cpp"
   "mpv/mpv_player.cpp"
   "mpv/mpv_plugin.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
@@ -32,7 +33,7 @@ target_compile_features(simdutf PUBLIC cxx_std_17)
 target_compile_options(simdutf PRIVATE /W0)
 
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app flutter_wrapper_plugin)
-target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib" "comctl32.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib" "comctl32.lib" "dxgi.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "${MPV_LIB_DIR}/libmpv.dll.a")
 target_link_libraries(${BINARY_NAME} PRIVATE simdutf)
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
@@ -57,13 +58,14 @@ if(PLEZY_BUILD_MPV_PROPERTY_CONTRACT_TESTS)
 
   add_executable(mpv_player_property_contract_test
     "mpv/mpv_player.cpp"
+    "mpv/hdr_probe.cpp"
     "mpv/mpv_player_property_contract_test.cpp"
   )
   apply_standard_settings(mpv_player_property_contract_test)
   target_compile_definitions(mpv_player_property_contract_test PRIVATE "NOMINMAX")
   target_link_libraries(
     mpv_player_property_contract_test
-    PRIVATE flutter_wrapper_plugin "${MPV_LIB_DIR}/libmpv.dll.a" simdutf "comctl32.lib" "user32.lib"
+    PRIVATE flutter_wrapper_plugin "${MPV_LIB_DIR}/libmpv.dll.a" simdutf "comctl32.lib" "user32.lib" "dxgi.lib"
   )
   target_include_directories(
     mpv_player_property_contract_test
