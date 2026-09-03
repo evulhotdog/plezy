@@ -868,6 +868,11 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindin
   @visibleForTesting
   PlaybackProgressTracker? get debugProgressTrackerForTesting => _progressTracker;
 
+  /// Lets prompt-countdown coverage reach the session state that the
+  /// key/pointer interaction hooks mutate.
+  @visibleForTesting
+  EpisodeSessionState get debugEpisodeForTesting => _episode;
+
   late final PlayerNavigationCoordinator _playerNavigationCoordinator;
 
   @override
@@ -942,7 +947,11 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindin
     // Ensures a single stable focus target across loading → initialized phases.
     _screenFocusNode = playerSurfaceFocusNode('VideoPlayerScreen');
     _screenFocusNode.addListener(_onScreenFocusChanged);
+    // Cursor movement over the player is interaction too: stop the Play Next
+    // countdown so the viewer chooses in their own time.
+    _chromeController.onPointerActivity = _cancelPlayNextCountdownForInteraction;
     HardwareKeyboard.instance.addHandler(_primeInitializationNavigationFocus);
+    HardwareKeyboard.instance.addHandler(_handlePlayNextInteractionKey);
 
     appLogger.d('VideoPlayerScreen initialized for: ${_currentMetadata.title}');
     if (_preferredAudioTrack != null) {
@@ -1922,6 +1931,7 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindin
 
     _screenFocusNode.removeListener(_onScreenFocusChanged);
     HardwareKeyboard.instance.removeHandler(_primeInitializationNavigationFocus);
+    HardwareKeyboard.instance.removeHandler(_handlePlayNextInteractionKey);
     _screenFocusNode.dispose();
 
     _mediaControlsManager?.clear();

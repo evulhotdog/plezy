@@ -19,6 +19,7 @@ import '../../../utils/provider_extensions.dart';
 import '../../../watch_together/providers/watch_together_provider.dart';
 import '../../../watch_together/widgets/watch_together_overlay.dart';
 import '../../../widgets/app_icon.dart';
+import '../../../widgets/countdown_fill.dart';
 import '../../../widgets/optimized_media_image.dart';
 import '../../../widgets/settings_builder.dart';
 import '../../../widgets/video_controls/player_chrome_controller.dart';
@@ -199,6 +200,10 @@ class VideoPlayerPlayNextOverlay extends StatelessWidget {
   final bool visible;
   final MediaItem? nextEpisode;
   final ValueListenable<int> autoPlayCountdown;
+
+  /// Seconds the countdown started from; countdown/total drives the fill
+  /// sweep. 0 (auto-play off) means no fill.
+  final int autoPlayCountdownTotal;
   final FocusNode cancelFocusNode;
   final FocusNode confirmFocusNode;
   final PlayerChromeController chromeController;
@@ -210,6 +215,7 @@ class VideoPlayerPlayNextOverlay extends StatelessWidget {
     required this.visible,
     required this.nextEpisode,
     required this.autoPlayCountdown,
+    required this.autoPlayCountdownTotal,
     required this.cancelFocusNode,
     required this.confirmFocusNode,
     required this.chromeController,
@@ -241,22 +247,22 @@ class VideoPlayerPlayNextOverlay extends StatelessWidget {
           onCancel: onCancel,
           confirmFocusNode: confirmFocusNode,
           onConfirm: onPlayNext,
-          confirmChildren: [
-            ValueListenableBuilder<int>(
-              valueListenable: autoPlayCountdown,
-              builder: (context, countdown, child) {
-                if (countdown <= 0) return Text(t.videoControls.playNext);
-                return Row(
-                  mainAxisSize: .min,
-                  children: [
-                    Text('$countdown'),
-                    const SizedBox(width: 4),
-                    const AppIcon(Symbols.play_arrow_rounded, fill: 1, size: 18),
-                  ],
-                );
-              },
-            ),
-          ],
+          // Label only: the 320px card gives each button 140px, too tight
+          // for label + icon - the fill sweep carries the affordance.
+          confirmChildren: [Text(t.videoControls.playNext)],
+          confirmFill: ValueListenableBuilder<int>(
+            valueListenable: autoPlayCountdown,
+            builder: (context, countdown, child) {
+              final total = autoPlayCountdownTotal;
+              if (countdown <= 0 || total <= 0) return const SizedBox.shrink();
+              // Whole-second ticks: the elapsed fraction anchors the fill and
+              // CountdownFill's frame clock sweeps smoothly between ticks.
+              return CountdownFill(
+                progress: 1 - countdown / total,
+                total: Duration(seconds: total),
+              );
+            },
+          ),
         ),
       ],
     );
@@ -462,8 +468,14 @@ class _VideoPlayerPromptActions extends StatelessWidget {
   final VoidCallback onConfirm;
   final List<Widget> confirmChildren;
 
+  /// Optional countdown fill swept across the confirm button's face, clipped
+  /// to its stadium shape. Built by the caller so the countdown listenable
+  /// drives it directly; null renders a plain button.
+  final Widget? confirmFill;
+
   const _VideoPlayerPromptActions({
     required this.cancelLabel,
+    this.confirmFill,
     required this.cancelFocusNode,
     required this.onCancel,
     required this.confirmFocusNode,
@@ -504,14 +516,28 @@ class _VideoPlayerPromptActions extends StatelessWidget {
             onNavigateUp: () {},
             onNavigateDown: () {},
             useBackgroundFocus: true,
-            child: FilledButton(
-              onPressed: onConfirm,
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-              child: Row(mainAxisAlignment: .center, children: confirmChildren),
+            child: Stack(
+              children: [
+                FilledButton(
+                  onPressed: onConfirm,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: Row(mainAxisAlignment: .center, children: confirmChildren),
+                ),
+                if (confirmFill != null)
+                  Positioned.fill(
+                    // Same shape the theme gives FilledButton; the fill must
+                    // reach the rounded ends, so it clips to the stadium
+                    // rather than sitting inside the button's padding.
+                    child: ClipPath(
+                      clipper: const ShapeBorderClipper(shape: StadiumBorder()),
+                      child: confirmFill,
+                    ),
+                  ),
+              ],
             ),
           ),
         ),

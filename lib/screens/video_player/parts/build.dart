@@ -354,6 +354,7 @@ extension _VideoPlayerBuildMethods on VideoPlayerScreenState {
                 visible: _episode.showPlayNextDialog,
                 nextEpisode: _episode.next,
                 autoPlayCountdown: _episode.autoPlayCountdown,
+                autoPlayCountdownTotal: _episode.autoPlayCountdownStart,
                 cancelFocusNode: _playNextCancelFocusNode,
                 confirmFocusNode: _playNextConfirmFocusNode,
                 chromeController: _chromeController,

@@ -102,6 +102,7 @@ extension _VideoPlayerPlaybackPromptMethods on VideoPlayerScreenState {
       _setPlayerState(() {
         _episode.showPlayNextDialog = true;
         _episode.autoPlayCountdown.value = autoPlayEnabled ? countdownSeconds : -1;
+        _episode.autoPlayCountdownStart = autoPlayEnabled ? countdownSeconds : 0;
       });
 
       // Auto-focus Play Next button on TV when dialog appears (only in keyboard/TV mode)
@@ -183,6 +184,7 @@ extension _VideoPlayerPlaybackPromptMethods on VideoPlayerScreenState {
       // spaces transient-failure retries (see completion_latch.dart), so a
       // user preference of 0 must not collapse it into a hot retry loop.
       _episode.autoPlayCountdown.value = countdown ? 5 : -1;
+      _episode.autoPlayCountdownStart = countdown ? 5 : 0;
     });
 
     if (isKeyboardMode) {
@@ -204,6 +206,26 @@ extension _VideoPlayerPlaybackPromptMethods on VideoPlayerScreenState {
     _setPlayerState(() {
       _episode.showPlayNextDialog = false;
     });
+  }
+
+  /// Any user interaction while the Play Next auto-play countdown is running
+  /// stops the timer but keeps the prompt up: the viewer takes over and
+  /// chooses without a time limit. Deliberately not [_cancelAutoPlay], which
+  /// dismisses the prompt entirely.
+  void _cancelPlayNextCountdownForInteraction() {
+    if (!_episode.showPlayNextDialog) return;
+    _episode.cancelAutoPlayCountdown();
+  }
+
+  /// HardwareKeyboard hook: any pressed key (d-pad, arrows, remote) cancels an
+  /// in-progress Play Next countdown. Non-consuming — the key still performs
+  /// its normal action, mirroring the controls' global handler that stops the
+  /// auto-skip countdown.
+  bool _handlePlayNextInteractionKey(KeyEvent event) {
+    if (!mounted) return false;
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
+    _cancelPlayNextCountdownForInteraction();
+    return false;
   }
 
   void _dismissPlaybackPromptForBack() {
