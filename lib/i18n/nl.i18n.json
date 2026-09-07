@@ -169,6 +169,8 @@
     "alwaysKeepSidebarOpenDescription": "Zijbalk blijft uitgevouwen en inhoudsgebied past zich aan",
     "showUnwatchedCount": "Aantal ongekeken tonen",
     "showUnwatchedCountDescription": "Toon aantal ongekeken afleveringen bij series en seizoenen",
+    "showWatchedIndicators": "",
+    "showWatchedIndicatorsDescription": "",
     "showEpisodeNumberOnCards": "Afleveringsnummer op kaarten tonen",
     "showEpisodeNumberOnCardsDescription": "Toon seizoen- en afleveringsnummer op afleveringskaarten",
     "showSeasonPostersOnTabs": "Toon seizoensposters op tabbladen",
@@ -273,10 +275,17 @@
     "autoPlayNextEpisodeDescription": "Start de volgende aflevering automatisch wanneer een aflevering eindigt",
     "playNextCountdown": "Aftellen voor volgende aflevering",
     "playNextCountdownImmediate": "Direct afspelen",
-    "autoSkipIntro": "Intro automatisch overslaan",
-    "autoSkipIntroDescription": "Intromarkeringen na enkele seconden automatisch overslaan",
-    "autoSkipCredits": "Aftiteling automatisch overslaan",
-    "autoSkipCreditsDescription": "Aftiteling automatisch overslaan en de volgende aflevering afspelen",
+    "skipIntroMode": "",
+    "skipIntroModeOffDescription": "",
+    "skipIntroModeButtonDescription": "",
+    "skipIntroModeAutoDescription": "",
+    "skipCreditsMode": "",
+    "skipCreditsModeOffDescription": "",
+    "skipCreditsModeButtonDescription": "",
+    "skipCreditsModeAutoDescription": "",
+    "skipMarkerModeOff": "",
+    "skipMarkerModeButton": "",
+    "skipMarkerModeAuto": "",
     "forceSkipMarkerFallback": "Reservemarkeringen afdwingen",
     "forceSkipMarkerFallbackDescription": "Gebruik patronen in hoofdstuktitels, zelfs wanneer Plex markeringen heeft",
     "autoSkipDelay": "Vertraging voor automatisch overslaan",
@@ -770,6 +779,7 @@
     "playbackDataInvalid": "De server heeft ongeldige afspeelinformatie geretourneerd.",
     "playbackCancelled": "Het afspelen is geannuleerd.",
     "playbackFailed": "Het afspelen kon niet worden gestart.",
+    "mediaUnavailable": "",
     "errorLoadingFileInfo": "Fout bij laden van bestandsinformatie: ${error}",
     "errorLoadingSeries": "Fout bij laden van serie",
     "musicNotSupported": "Muziek afspelen wordt nog niet ondersteund",
@@ -855,6 +865,9 @@
     "presetDeleted": "Voorinstelling verwijderd",
     "confirmDeletePreset": "Weet je zeker dat je deze voorinstelling wilt verwijderen?",
     "configPlaceholder": "gpu-api=vulkan\nhwdec=auto\n# comment",
+    "lineHint": "",
+    "addLine": "",
+    "removeLine": "",
     "embeddedVoHint": "vo, gpu-context en gpu-api worden genegeerd op Linux: ingebedde video wordt altijd weergegeven via vo=libmpv op het videovlak, en gpu-next (nodig voor compute-shaders zoals ArtCNN) kan niet ingebed draaien."
   },
   "dialog": {
@@ -1251,6 +1264,10 @@
     "notInLibrary": "Niet in je bibliotheek",
     "inTheseLibraries": "In deze bibliotheken",
     "checkingLibrary": "Je bibliotheek controleren...",
+    "libraryCheckFailed": {
+      "one": "",
+      "other": ""
+    },
     "emptyTitle": "Hier is nog niets",
     "emptyMessage": "Rijen van ${source} verschijnen hier zodra ze inhoud hebben.",
     "searchHint": "Zoeken in ${source}",
@@ -1644,7 +1661,8 @@
       "timedOut": "De relayserver heeft niet op tijd gereageerd",
       "connectionLost": "De verbinding is verbroken voordat de sessie gereed was",
       "invalidRelayResponse": "De relayserver heeft een onverwacht antwoord verzonden",
-      "sessionEnded": "De host heeft de sessie beëindigd"
+      "sessionEnded": "De host heeft de sessie beëindigd",
+      "sessionUnavailable": ""
     }
   },
   "downloads": {
@@ -2075,6 +2093,10 @@
     "qualityProfile": "Kwaliteitsprofiel",
     "rootFolder": "Hoofdmap",
     "languageProfile": "Taalprofiel",
+    "tags": "",
+    "noTags": "",
+    "defaultOption": "",
+    "animeNote": "",
     "requestSubmitted": "Aanvraag verzonden",
     "requestFailed": "Aanvraag mislukt: ${error}",
     "requestsLoadFailed": "Aanvraagopties konden niet worden geladen",
@@ -2086,6 +2108,7 @@
     "statusBlocklisted": "Op de blokkeerlijst",
     "couldNotReach": "Kon ${url} niet bereiken: ${error}",
     "noInstanceAtUrl": "Geen Seerr-instantie op ${url} (HTTP ${status})",
+    "behindAuthProxy": "",
     "invalidUrl": "Voer een serveradres in, zoals https://seerr.example.com",
     "quickConnectUnsupported": "Deze Seerr-instantie ondersteunt Quick Connect niet. Hiervoor is Seerr 3.4 of nieuwer nodig.",
     "notInitialized": "De eerste configuratie van deze Seerr-instantie is niet voltooid",
@@ -2095,7 +2118,9 @@
     "noSessionCookie": "Seerr heeft geen sessiecookie verstrekt",
     "freshCookieRejected": "Seerr heeft de nieuwe sessiecookie geweigerd",
     "noUserInformation": "Seerr heeft geen gebruikersgegevens geretourneerd",
-    "sessionRejectedAfterReauth": "De sessie is na het opnieuw inloggen geweigerd"
+    "sessionRejectedAfterReauth": "De sessie is na het opnieuw inloggen geweigerd",
+    "permissionDenied": "",
+    "permissionRevoked": ""
   },
   "services": {
     "title": "Diensten",
