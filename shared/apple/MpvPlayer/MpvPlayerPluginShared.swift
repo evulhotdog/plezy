@@ -110,10 +110,13 @@ extension MpvPluginShared {
       return
     }
 
+    // `loadfile` answers with the playlist entry it created so Dart can tie
+    // the load to that source's start-file/playback-restart/end-file events;
+    // every other command answers nil.
     coreBase?.commandAsync(commandArgs) { commandResult in
       switch commandResult {
-      case .success:
-        result(nil)
+      case .success(let playlistEntryId):
+        result(playlistEntryId.map { ["playlistEntryId": $0] })
       case .failure(let error):
         result(
           FlutterError(
@@ -160,9 +163,10 @@ extension MpvPluginShared {
 
   // MARK: - MpvPlayerDelegate
 
-  func onPropertyChange(name: String, value: Any?) {
+  func onPropertyChange(name: String, value: Any?, sourceId: Int64?) {
     guard let eventSink = eventSink, let propId = nameToId[name] else { return }
-    eventSink([propId, value as Any])
+    let message: [Any?] = [propId, value, sourceId]
+    eventSink(message)
   }
 
   func onEvent(name: String, data: [String: Any]?) {
