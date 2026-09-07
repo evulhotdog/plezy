@@ -221,7 +221,7 @@ void main() {
     'fill sweeps monotonically under position ticks',
     markers: [MediaMarker(id: 1, type: 'intro', startTimeOffset: 10000, endTimeOffset: 45000)],
     (tester) async {
-      await settings.write(SettingsService.autoSkipIntro, true);
+      await settings.write(SettingsService.skipIntroMode, SkipMarkerMode.auto);
       player.emitPosition(const Duration(seconds: 15));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
