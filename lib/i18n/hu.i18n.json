@@ -169,6 +169,8 @@
     "alwaysKeepSidebarOpenDescription": "Az oldalsáv kibontva marad, a tartalom területe igazodik hozzá",
     "showUnwatchedCount": "Nem látott elemek számának megjelenítése",
     "showUnwatchedCountDescription": "Megjeleníti a még nem látott epizódok számát a sorozatoknál és évadoknál",
+    "showWatchedIndicators": "",
+    "showWatchedIndicatorsDescription": "",
     "showEpisodeNumberOnCards": "Epizódszám megjelenítése a kártyákon",
     "showEpisodeNumberOnCardsDescription": "Megjeleníti az évad- és epizódszámot az epizódkártyákon",
     "showSeasonPostersOnTabs": "Évadborítók megjelenítése a füleken",
@@ -273,10 +275,17 @@
     "autoPlayNextEpisodeDescription": "A következő epizód automatikus elindítása, amikor az aktuális véget ér",
     "playNextCountdown": "Visszaszámlálás a következő epizódig",
     "playNextCountdownImmediate": "Azonnali lejátszás",
-    "autoSkipIntro": "Intró automatikus átugrása",
-    "autoSkipIntroDescription": "Az intrójelölők automatikus átugrása néhány másodperc után",
-    "autoSkipCredits": "Stáblista automatikus átugrása",
-    "autoSkipCreditsDescription": "A stáblista automatikus átugrása és a következő epizód lejátszása",
+    "skipIntroMode": "",
+    "skipIntroModeOffDescription": "",
+    "skipIntroModeButtonDescription": "",
+    "skipIntroModeAutoDescription": "",
+    "skipCreditsMode": "",
+    "skipCreditsModeOffDescription": "",
+    "skipCreditsModeButtonDescription": "",
+    "skipCreditsModeAutoDescription": "",
+    "skipMarkerModeOff": "",
+    "skipMarkerModeButton": "",
+    "skipMarkerModeAuto": "",
     "forceSkipMarkerFallback": "Tartalék jelölők kényszerítése",
     "forceSkipMarkerFallbackDescription": "Fejezetcím-minták használata akkor is, ha a Plex rendelkezik jelölőkkel",
     "autoSkipDelay": "Automatikus átugrás késleltetése",
@@ -770,6 +779,7 @@
     "playbackDataInvalid": "A szerver érvénytelen lejátszási adatokat küldött.",
     "playbackCancelled": "A lejátszás megszakítva.",
     "playbackFailed": "Nem sikerült elindítani a lejátszást.",
+    "mediaUnavailable": "",
     "errorLoadingFileInfo": "Hiba a fájlinformációk betöltésekor: ${error}",
     "errorLoadingSeries": "Hiba a sorozat betöltésekor",
     "musicNotSupported": "A zenelejátszás még nem támogatott",
@@ -855,6 +865,9 @@
     "presetDeleted": "Előbeállítás törölve",
     "confirmDeletePreset": "Biztosan törölni szeretnéd ezt az előbeállítást?",
     "configPlaceholder": "gpu-api=vulkan\nhwdec=auto\n# megjegyzés",
+    "lineHint": "",
+    "addLine": "",
+    "removeLine": "",
     "embeddedVoHint": "A vo, gpu-context és gpu-api beállítások Linuxon figyelmen kívül maradnak: a beágyazott videó mindig a vo=libmpv-n keresztül jelenik meg a videósíkon, a gpu-next (amelyre az ArtCNN-hez hasonló compute shadereknek szükségük van) pedig nem futhat beágyazva."
   },
   "dialog": {
@@ -1251,6 +1264,10 @@
     "notInLibrary": "Nincs a könyvtáradban",
     "inTheseLibraries": "Ezekben a könyvtárakban",
     "checkingLibrary": "Könyvtár ellenőrzése...",
+    "libraryCheckFailed": {
+      "one": "",
+      "other": ""
+    },
     "emptyTitle": "Még nincs itt semmi",
     "emptyMessage": "A(z) ${source} forrásból származó sorok itt fognak megjelenni, amint van tartalmuk.",
     "searchHint": "Keresés itt: ${source}",
@@ -1644,7 +1661,8 @@
       "timedOut": "A relészerver nem válaszolt időben",
       "connectionLost": "A kapcsolat lezárult, mielőtt a munkamenet elkészült volna",
       "invalidRelayResponse": "A relészerver váratlan választ küldött",
-      "sessionEnded": "A házigazda befejezte a munkamenetet"
+      "sessionEnded": "A házigazda befejezte a munkamenetet",
+      "sessionUnavailable": ""
     }
   },
   "downloads": {
@@ -2075,6 +2093,10 @@
     "qualityProfile": "Minőségi profil",
     "rootFolder": "Gyökérmappa",
     "languageProfile": "Nyelvi profil",
+    "tags": "",
+    "noTags": "",
+    "defaultOption": "",
+    "animeNote": "",
     "requestSubmitted": "Igénylés elküldve",
     "requestFailed": "Az igénylés nem sikerült: ${error}",
     "requestsLoadFailed": "Nem sikerült betölteni az igénylési opciókat",
@@ -2086,6 +2108,7 @@
     "statusBlocklisted": "Tiltólistán",
     "couldNotReach": "Nem sikerült elérni ezt: ${url}: ${error}",
     "noInstanceAtUrl": "Nem található Seerr-példány ezen a címen: ${url} (HTTP ${status})",
+    "behindAuthProxy": "",
     "invalidUrl": "Adj meg egy szervercímet, például: https://seerr.example.com",
     "quickConnectUnsupported": "Ez a Seerr-példány nem támogatja a Quick Connectet. Seerr 3.4 vagy újabb verzió szükséges.",
     "notInitialized": "Ennek a Seerr-példánynak a kezdeti beállítása még nem fejeződött be",
@@ -2095,7 +2118,9 @@
     "noSessionCookie": "A Seerr nem adott ki munkamenet-sütit",
     "freshCookieRejected": "A Seerr elutasította az új munkamenet-sütit",
     "noUserInformation": "A Seerr nem adott vissza felhasználói adatokat",
-    "sessionRejectedAfterReauth": "A munkamenetet az újbóli bejelentkezés után elutasították"
+    "sessionRejectedAfterReauth": "A munkamenetet az újbóli bejelentkezés után elutasították",
+    "permissionDenied": "",
+    "permissionRevoked": ""
   },
   "services": {
     "title": "Szolgáltatások",

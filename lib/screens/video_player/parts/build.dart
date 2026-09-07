@@ -316,7 +316,6 @@ extension _VideoPlayerBuildMethods on VideoPlayerScreenState {
                         onSeekRequested: _seekPlayback,
                         onRateRequested: _setPlaybackRate,
                         onPlayPauseRequested: _handleControlsTransport,
-                        onSeekCompleted: _notifyWatchTogetherSeek,
                         onBack: _handleBackButton,
                         onReachedEnd: ({skipAutoPlayCountdown = false}) =>
                             _onVideoCompleted(true, skipAutoPlayCountdown: skipAutoPlayCountdown),
@@ -334,8 +333,7 @@ extension _VideoPlayerBuildMethods on VideoPlayerScreenState {
                         liveChannelName: _live.channelName,
                         captureBuffer: _live.captureBuffer,
                         isAtLiveEdge: _live.atLiveEdge,
-                        streamStartEpoch: _live.streamStartEpoch,
-                        currentPositionEpoch: widget.isLive ? _currentPositionEpoch : null,
+                        liveEpochForPosition: widget.isLive ? _liveEpochForPosition : null,
                         onLiveSeek: _live.captureBuffer != null ? _seekLiveToEpoch : null,
                         onLiveSeekBy: _live.captureBuffer != null ? _liveSeek.seekBy : null,
                         onJumpToLive: _live.captureBuffer != null && !_live.atLiveEdge ? _jumpToLiveEdge : null,

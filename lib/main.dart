@@ -33,6 +33,7 @@ import 'screens/auth_screen.dart';
 import 'screens/profile/pin_entry_dialog.dart';
 import 'screens/profile/profile_switch_screen.dart';
 import 'services/storage_service.dart';
+import 'services/assistive_technology_service.dart';
 import 'services/device_performance.dart';
 import 'services/video_decode_capabilities.dart';
 import 'services/macos_window_service.dart';
@@ -50,7 +51,6 @@ import 'services/gamepad_service.dart';
 import 'services/trackers/tracker_coordinator.dart';
 import 'providers/account_preferences_controller.dart';
 import 'services/account_preferences_repository.dart';
-import 'providers/user_profile_provider.dart';
 import 'providers/multi_server_provider.dart';
 import 'providers/theme_provider.dart';
 import 'providers/download_provider.dart';
@@ -138,6 +138,9 @@ void main() {
   // Keep the accessibility tree available to Maestro and other UI automation
   // without adding release-build overhead.
   if (kDebugMode) binding.ensureSemantics();
+  // Android: skip the per-frame semantics pass when the only bound
+  // accessibility service cannot read it (launcher hooks, key remappers).
+  AssistiveTechnologyService.instance.ensureStarted();
   _installZeroOffsetPointerGuard(); // Workaround for iPadOS 26.1+ modal dismissal bug
 
   // On tvOS, Flutter's generated plugin registrant doesn't run (no tvOS
@@ -1527,10 +1530,14 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
         if (now.difference(_lastResumeProbe) >= cooldown) {
           _lastResumeProbe = now;
           // Await health check before reconnecting so stale "online" servers
-          // get marked offline and included in the reconnection sweep.
+          // get marked offline and included in the reconnection sweep. Servers
+          // that stayed online but were failed over onto a remote endpoint
+          // while local ones exist get re-raced: a same-interface sleep/wake
+          // never fires the connectivity event that would otherwise do it.
           unawaited(() async {
             await _serverManager.checkServerHealth();
             await _serverManager.reconnectOfflineServers();
+            await _serverManager.reoptimizeDemotedServers(reason: 'resume');
           }());
         }
       case AppLifecycleState.paused:
@@ -1747,20 +1754,6 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
         ProxyProvider<AccountPreferencesController, AccountPreferencesRepository>(
           update: (_, controller, _) => controller.repository,
         ),
-        ChangeNotifierProxyProvider2<ActiveProfileProvider, ConnectionRegistry, UserProfileProvider>(
-          create: (context) => UserProfileProvider(storageService: context.read<StorageService>()),
-          update: (context, activeProfile, connections, previous) {
-            final provider = previous!;
-            provider.attach(
-              connections: connections,
-              activeProfile: activeProfile,
-              profileConnections: context.read<ProfileConnectionRegistry>(),
-              serverManager: context.read<MultiServerProvider>().serverManager,
-              accountPreferences: context.read<AccountPreferencesController>(),
-            );
-            return provider;
-          },
-        ),
         ChangeNotifierProvider(create: (context) => ThemeProvider()),
         // Shader presets are app-global — deliberately outside the
         // profile-scoped session in ProfileSessionScreen.
@@ -1874,9 +1867,15 @@ class FormFactorScale extends StatelessWidget {
     }
     if (!PlatformDetector.isAutomotive()) return child;
 
+    // Car system bars can sit on the left or right, are opaque, and may be
+    // impossible to hide (OEM policy). Nothing is worth drawing under them,
+    // and the mobile screens only honour top/bottom insets, so consume the
+    // horizontal ones here, once, for every route (car app quality AR-1).
+    // Inside the scaled MediaQuery so the SafeArea reads the scaled padding.
+    final insetChild = SafeArea(top: false, bottom: false, child: child);
     return SettingValueBuilder<double>(
       pref: SettingsService.automotiveUiScale,
-      builder: (context, scale, _) => _scaledSurface(child: child, scale: scale, zeroInsets: false),
+      builder: (context, scale, _) => _scaledSurface(child: insetChild, scale: scale, zeroInsets: false),
     );
   }
 
@@ -1957,15 +1956,9 @@ class _SetupScreenState extends State<SetupScreen> with MountedSetStateMixin {
   void initState() {
     super.initState();
     _loadSavedCredentials();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
     // The app's first screen: undo any orientation lock a previous run's
-    // full-screen player left behind, and re-apply it whenever the form
-    // factor signals (Theme.platform / MediaQuery size) change.
-    OrientationHelper.restoreDefaultOrientations(context);
+    // full-screen player left behind.
+    unawaited(OrientationHelper.restoreDefaultOrientations());
   }
 
   void _setStatus(String message) {
@@ -2028,6 +2021,7 @@ class _SetupScreenState extends State<SetupScreen> with MountedSetStateMixin {
           connectionRegistry: connRegistry,
           serverRegistry: registry,
           profileRegistry: profileRegistry,
+          plexHome: context.read<PlexHomeService>(),
         );
         await bootstrap.run();
         final pruned = await ProfileConnectionCleanup(

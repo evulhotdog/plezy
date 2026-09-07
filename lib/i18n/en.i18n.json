@@ -169,6 +169,8 @@
     "alwaysKeepSidebarOpenDescription": "Sidebar stays expanded and content area adjusts to fit",
     "showUnwatchedCount": "Show Unwatched Count",
     "showUnwatchedCountDescription": "Display unwatched episode count on shows and seasons",
+    "showWatchedIndicators": "Show Watched Indicators",
+    "showWatchedIndicatorsDescription": "Display a checkmark on watched movies, shows, and episodes",
     "showEpisodeNumberOnCards": "Show Episode Number on Cards",
     "showEpisodeNumberOnCardsDescription": "Show season and episode number on episode cards",
     "showSeasonPostersOnTabs": "Show Season Posters on Tabs",
@@ -273,10 +275,17 @@
     "autoPlayNextEpisodeDescription": "Start the next episode automatically when one ends",
     "playNextCountdown": "Play Next Countdown",
     "playNextCountdownImmediate": "Play immediately",
-    "autoSkipIntro": "Auto Skip Intro",
-    "autoSkipIntroDescription": "Automatically skip intro markers after a few seconds",
-    "autoSkipCredits": "Auto Skip Credits",
-    "autoSkipCreditsDescription": "Automatically skip credits and play next episode",
+    "skipIntroMode": "Skip Intro",
+    "skipIntroModeOffDescription": "Play intros normally without a skip button",
+    "skipIntroModeButtonDescription": "Show a skip button when an intro starts",
+    "skipIntroModeAutoDescription": "Skip intros automatically after the delay below",
+    "skipCreditsMode": "Skip Credits",
+    "skipCreditsModeOffDescription": "Play credits normally without a skip button",
+    "skipCreditsModeButtonDescription": "Show a skip button when credits start",
+    "skipCreditsModeAutoDescription": "Skip credits automatically and play the next episode",
+    "skipMarkerModeOff": "Off",
+    "skipMarkerModeButton": "Show button",
+    "skipMarkerModeAuto": "Automatic",
     "forceSkipMarkerFallback": "Force Fallback Markers",
     "forceSkipMarkerFallbackDescription": "Use chapter title patterns even when Plex has markers",
     "autoSkipDelay": "Auto Skip Delay",
@@ -770,6 +779,7 @@
     "playbackDataInvalid": "The server returned invalid playback information.",
     "playbackCancelled": "Playback was canceled.",
     "playbackFailed": "Playback could not be started.",
+    "mediaUnavailable": "This content is no longer available.",
     "errorLoadingFileInfo": "Error loading file info: ${error}",
     "errorLoadingSeries": "Error loading series",
     "musicNotSupported": "Music playback is not yet supported",
@@ -855,6 +865,9 @@
     "presetDeleted": "Preset deleted",
     "confirmDeletePreset": "Are you sure you want to delete this preset?",
     "configPlaceholder": "gpu-api=vulkan\nhwdec=auto\n# comment",
+    "lineHint": "option=value",
+    "addLine": "Add line",
+    "removeLine": "Remove line",
     "embeddedVoHint": "vo, gpu-context and gpu-api are ignored on Linux: embedded video always renders through vo=libmpv on the video plane, and gpu-next (which compute shaders like ArtCNN need) cannot run embedded."
   },
   "dialog": {
@@ -1251,6 +1264,10 @@
     "notInLibrary": "Not in your library",
     "inTheseLibraries": "In these libraries",
     "checkingLibrary": "Checking your library...",
+    "libraryCheckFailed": {
+      "one": "Couldn't check ${n} server",
+      "other": "Couldn't check ${n} servers"
+    },
     "emptyTitle": "Nothing here yet",
     "emptyMessage": "Rows from ${source} will appear here once they have content.",
     "searchHint": "Search ${source}",
@@ -1644,7 +1661,8 @@
       "timedOut": "The relay did not respond in time",
       "connectionLost": "The connection closed before the session was ready",
       "invalidRelayResponse": "The relay sent an unexpected response",
-      "sessionEnded": "The host ended the session"
+      "sessionEnded": "The host ended the session",
+      "sessionUnavailable": "Unable to resume this session. Join or create a room to continue."
     }
   },
   "downloads": {
@@ -2075,6 +2093,10 @@
     "qualityProfile": "Quality profile",
     "rootFolder": "Root folder",
     "languageProfile": "Language profile",
+    "tags": "Tags",
+    "noTags": "No tags",
+    "defaultOption": "${name} (Default)",
+    "animeNote": "This series is an anime.",
     "requestSubmitted": "Request submitted",
     "requestFailed": "Request failed: ${error}",
     "requestsLoadFailed": "Couldn't load request options",
@@ -2086,6 +2108,7 @@
     "statusBlocklisted": "Blocklisted",
     "couldNotReach": "Could not reach ${url}: ${error}",
     "noInstanceAtUrl": "No Seerr instance at ${url} (HTTP ${status})",
+    "behindAuthProxy": "An authenticating reverse proxy (SSO or HTTP auth) answered instead of Seerr. Plezy cannot sign in through it: let Seerr's /api/v1 path bypass the proxy for this app, or use an address that reaches Seerr directly.",
     "invalidUrl": "Enter a server address like https://seerr.example.com",
     "quickConnectUnsupported": "This Seerr instance does not support Quick Connect. It needs Seerr 3.4 or newer.",
     "notInitialized": "This Seerr instance has not completed first-run setup",
@@ -2095,7 +2118,9 @@
     "noSessionCookie": "Seerr did not issue a session cookie",
     "freshCookieRejected": "Seerr rejected the new session cookie",
     "noUserInformation": "Seerr did not return user information",
-    "sessionRejectedAfterReauth": "The session was rejected after signing in again"
+    "sessionRejectedAfterReauth": "The session was rejected after signing in again",
+    "permissionDenied": "Seerr denied this action: your account no longer has the required permission",
+    "permissionRevoked": "You no longer have permission to request this"
   },
   "services": {
     "title": "Services",

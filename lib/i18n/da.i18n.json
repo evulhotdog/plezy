@@ -169,6 +169,8 @@
     "alwaysKeepSidebarOpenDescription": "Sidepanelet forbliver udvidet, og indholdsområdet tilpasser sig",
     "showUnwatchedCount": "Vis antal usete",
     "showUnwatchedCountDescription": "Vis antal usete episoder på serier og sæsoner",
+    "showWatchedIndicators": "",
+    "showWatchedIndicatorsDescription": "",
     "showEpisodeNumberOnCards": "Vis episodenummer på kort",
     "showEpisodeNumberOnCardsDescription": "Vis sæson- og episodenummer på episodekort",
     "showSeasonPostersOnTabs": "Vis sæsonplakater på faner",
@@ -273,10 +275,17 @@
     "autoPlayNextEpisodeDescription": "Start automatisk næste afsnit, når et afsnit slutter",
     "playNextCountdown": "Nedtælling til næste afsnit",
     "playNextCountdownImmediate": "Afspil med det samme",
-    "autoSkipIntro": "Spring intro over automatisk",
-    "autoSkipIntroDescription": "Spring automatisk intromarkører over efter få sekunder",
-    "autoSkipCredits": "Spring rulletekster over automatisk",
-    "autoSkipCreditsDescription": "Spring automatisk rulleteksterne over, og afspil næste episode",
+    "skipIntroMode": "",
+    "skipIntroModeOffDescription": "",
+    "skipIntroModeButtonDescription": "",
+    "skipIntroModeAutoDescription": "",
+    "skipCreditsMode": "",
+    "skipCreditsModeOffDescription": "",
+    "skipCreditsModeButtonDescription": "",
+    "skipCreditsModeAutoDescription": "",
+    "skipMarkerModeOff": "",
+    "skipMarkerModeButton": "",
+    "skipMarkerModeAuto": "",
     "forceSkipMarkerFallback": "Tving reservemarkører",
     "forceSkipMarkerFallbackDescription": "Brug mønstre i kapiteltitler, selv når Plex har markører",
     "autoSkipDelay": "Forsinkelse ved automatisk spring",
@@ -770,6 +779,7 @@
     "playbackDataInvalid": "Serveren returnerede ugyldige afspilningsoplysninger.",
     "playbackCancelled": "Afspilningen blev annulleret.",
     "playbackFailed": "Afspilningen kunne ikke startes.",
+    "mediaUnavailable": "",
     "errorLoadingFileInfo": "Fejl ved indlæsning af filinfo: ${error}",
     "errorLoadingSeries": "Fejl ved indlæsning af serie",
     "musicNotSupported": "Musikafspilning understøttes endnu ikke",
@@ -855,6 +865,9 @@
     "presetDeleted": "Forudindstilling slettet",
     "confirmDeletePreset": "Er du sikker på, at du vil slette denne forudindstilling?",
     "configPlaceholder": "gpu-api=vulkan\nhwdec=auto\n# comment",
+    "lineHint": "",
+    "addLine": "",
+    "removeLine": "",
     "embeddedVoHint": "vo, gpu-context og gpu-api ignoreres på Linux: indlejret video renderes altid via vo=libmpv på videoplanen, og gpu-next (som compute-shaders som ArtCNN kræver) kan ikke køre indlejret."
   },
   "dialog": {
@@ -1251,6 +1264,10 @@
     "notInLibrary": "Ikke i dit bibliotek",
     "inTheseLibraries": "I disse biblioteker",
     "checkingLibrary": "Tjekker dit bibliotek...",
+    "libraryCheckFailed": {
+      "one": "",
+      "other": ""
+    },
     "emptyTitle": "Der er ikke noget her endnu",
     "emptyMessage": "Indholdsrækker fra ${source} vises her, når de har indhold.",
     "searchHint": "Søg i ${source}",
@@ -1644,7 +1661,8 @@
       "timedOut": "Relayserveren svarede ikke i tide",
       "connectionLost": "Forbindelsen blev lukket, før sessionen var klar",
       "invalidRelayResponse": "Relayserveren sendte et uventet svar",
-      "sessionEnded": "Værten afsluttede sessionen"
+      "sessionEnded": "Værten afsluttede sessionen",
+      "sessionUnavailable": ""
     }
   },
   "downloads": {
@@ -2075,6 +2093,10 @@
     "qualityProfile": "Kvalitetsprofil",
     "rootFolder": "Rodmappe",
     "languageProfile": "Sprogprofil",
+    "tags": "",
+    "noTags": "",
+    "defaultOption": "",
+    "animeNote": "",
     "requestSubmitted": "Anmodning sendt",
     "requestFailed": "Anmodning mislykkedes: ${error}",
     "requestsLoadFailed": "Kunne ikke indlæse anmodningsmuligheder",
@@ -2086,6 +2108,7 @@
     "statusBlocklisted": "På blokeringslisten",
     "couldNotReach": "Kunne ikke nå ${url}: ${error}",
     "noInstanceAtUrl": "Ingen Seerr-instans på ${url} (HTTP ${status})",
+    "behindAuthProxy": "",
     "invalidUrl": "Indtast en serveradresse som https://seerr.example.com",
     "quickConnectUnsupported": "Denne Seerr-instans understøtter ikke Quick Connect. Den kræver Seerr 3.4 eller nyere.",
     "notInitialized": "Denne Seerr-instans har ikke fuldført førstegangsopsætningen",
@@ -2095,7 +2118,9 @@
     "noSessionCookie": "Seerr udstedte ikke en sessionscookie",
     "freshCookieRejected": "Seerr afviste den nye sessionscookie",
     "noUserInformation": "Seerr returnerede ikke brugeroplysninger",
-    "sessionRejectedAfterReauth": "Sessionen blev afvist efter at være logget ind igen"
+    "sessionRejectedAfterReauth": "Sessionen blev afvist efter at være logget ind igen",
+    "permissionDenied": "",
+    "permissionRevoked": ""
   },
   "services": {
     "title": "Tjenester",

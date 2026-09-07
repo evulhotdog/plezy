@@ -169,6 +169,8 @@
     "alwaysKeepSidebarOpenDescription": "侧边栏保持展开状态，内容区域自动调整",
     "showUnwatchedCount": "显示未观看数量",
     "showUnwatchedCountDescription": "在剧集和季上显示未观看集数",
+    "showWatchedIndicators": "",
+    "showWatchedIndicatorsDescription": "",
     "showEpisodeNumberOnCards": "在卡片上显示集数",
     "showEpisodeNumberOnCardsDescription": "在剧集卡片上显示季和集编号",
     "showSeasonPostersOnTabs": "在选项卡上显示季海报",
@@ -273,10 +275,17 @@
     "autoPlayNextEpisodeDescription": "当前剧集结束时自动播放下一集",
     "playNextCountdown": "播放下一集倒计时",
     "playNextCountdownImmediate": "立即播放",
-    "autoSkipIntro": "自动跳过片头",
-    "autoSkipIntroDescription": "几秒钟后自动跳过片头标记",
-    "autoSkipCredits": "自动跳过片尾",
-    "autoSkipCreditsDescription": "自动跳过片尾并播放下一集",
+    "skipIntroMode": "",
+    "skipIntroModeOffDescription": "",
+    "skipIntroModeButtonDescription": "",
+    "skipIntroModeAutoDescription": "",
+    "skipCreditsMode": "",
+    "skipCreditsModeOffDescription": "",
+    "skipCreditsModeButtonDescription": "",
+    "skipCreditsModeAutoDescription": "",
+    "skipMarkerModeOff": "",
+    "skipMarkerModeButton": "",
+    "skipMarkerModeAuto": "",
     "forceSkipMarkerFallback": "强制使用备用标记",
     "forceSkipMarkerFallbackDescription": "即使 Plex 有标记，也使用章节标题模式",
     "autoSkipDelay": "自动跳过延迟",
@@ -766,6 +775,7 @@
     "playbackDataInvalid": "服务器返回了无效的播放信息。",
     "playbackCancelled": "播放已取消。",
     "playbackFailed": "无法开始播放。",
+    "mediaUnavailable": "",
     "errorLoadingFileInfo": "加载文件信息时出错：${error}",
     "errorLoadingSeries": "加载剧集时出错",
     "musicNotSupported": "尚不支持播放音乐",
@@ -851,6 +861,9 @@
     "presetDeleted": "预设已删除",
     "confirmDeletePreset": "确定要删除此预设吗？",
     "configPlaceholder": "gpu-api=vulkan\nhwdec=auto\n# comment",
+    "lineHint": "",
+    "addLine": "",
+    "removeLine": "",
     "embeddedVoHint": "Linux 上会忽略 vo、gpu-context 和 gpu-api：嵌入式视频始终通过视频平面上的 vo=libmpv 渲染，而 gpu-next（ArtCNN 等计算着色器需要它）无法以嵌入式方式运行。"
   },
   "dialog": {
@@ -1245,6 +1258,9 @@
     "notInLibrary": "不在你的媒体库中",
     "inTheseLibraries": "在这些媒体库中",
     "checkingLibrary": "正在检查你的媒体库…",
+    "libraryCheckFailed": {
+      "other": ""
+    },
     "emptyTitle": "这里还什么都没有",
     "emptyMessage": "当 ${source} 有内容时，相关内容将显示在这里。",
     "searchHint": "搜索 ${source}",
@@ -1634,7 +1650,8 @@
       "timedOut": "中继服务器未及时响应",
       "connectionLost": "会话准备就绪前连接已断开",
       "invalidRelayResponse": "中继服务器返回了意外的响应",
-      "sessionEnded": "主持人已结束会话"
+      "sessionEnded": "主持人已结束会话",
+      "sessionUnavailable": ""
     }
   },
   "downloads": {
@@ -2065,6 +2082,10 @@
     "qualityProfile": "画质配置",
     "rootFolder": "根目录",
     "languageProfile": "语言配置",
+    "tags": "",
+    "noTags": "",
+    "defaultOption": "",
+    "animeNote": "",
     "requestSubmitted": "请求已提交",
     "requestFailed": "请求失败：${error}",
     "requestsLoadFailed": "无法加载请求选项",
@@ -2076,6 +2097,7 @@
     "statusBlocklisted": "已加入屏蔽列表",
     "couldNotReach": "无法连接到 ${url}：${error}",
     "noInstanceAtUrl": "${url} 上没有 Seerr 实例（HTTP ${status}）",
+    "behindAuthProxy": "",
     "invalidUrl": "输入服务器地址，例如 https://seerr.example.com",
     "quickConnectUnsupported": "此 Seerr 实例不支持 Quick Connect。需要 Seerr 3.4 或更高版本。",
     "notInitialized": "此 Seerr 实例尚未完成首次运行设置",
@@ -2085,7 +2107,9 @@
     "noSessionCookie": "Seerr 未签发会话 Cookie",
     "freshCookieRejected": "Seerr 拒绝了新的会话 Cookie",
     "noUserInformation": "Seerr 未返回用户信息",
-    "sessionRejectedAfterReauth": "重新登录后会话被拒绝"
+    "sessionRejectedAfterReauth": "重新登录后会话被拒绝",
+    "permissionDenied": "",
+    "permissionRevoked": ""
   },
   "services": {
     "title": "服务",
