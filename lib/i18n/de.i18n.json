@@ -169,6 +169,8 @@
     "alwaysKeepSidebarOpenDescription": "Seitenleiste bleibt erweitert und Inhaltsbereich passt sich an",
     "showUnwatchedCount": "Anzahl nicht gesehener Folgen anzeigen",
     "showUnwatchedCountDescription": "Zeigt die Anzahl nicht gesehener Episoden bei Serien und Staffeln an",
+    "showWatchedIndicators": "",
+    "showWatchedIndicatorsDescription": "",
     "showEpisodeNumberOnCards": "Episodennummer auf Karten anzeigen",
     "showEpisodeNumberOnCardsDescription": "Staffel- und Episodennummer auf Episodenkarten anzeigen",
     "showSeasonPostersOnTabs": "Staffelposter auf Tabs anzeigen",
@@ -277,10 +279,17 @@
     "autoPlayNextEpisodeDescription": "Die nächste Episode automatisch starten, wenn die aktuelle endet",
     "playNextCountdown": "Countdown bis zur nächsten Episode",
     "playNextCountdownImmediate": "Sofort abspielen",
-    "autoSkipIntro": "Intro automatisch überspringen",
-    "autoSkipIntroDescription": "Intro-Marker nach wenigen Sekunden automatisch überspringen",
-    "autoSkipCredits": "Abspann automatisch überspringen",
-    "autoSkipCreditsDescription": "Abspann automatisch überspringen und nächste Episode abspielen",
+    "skipIntroMode": "",
+    "skipIntroModeOffDescription": "",
+    "skipIntroModeButtonDescription": "",
+    "skipIntroModeAutoDescription": "",
+    "skipCreditsMode": "",
+    "skipCreditsModeOffDescription": "",
+    "skipCreditsModeButtonDescription": "",
+    "skipCreditsModeAutoDescription": "",
+    "skipMarkerModeOff": "",
+    "skipMarkerModeButton": "",
+    "skipMarkerModeAuto": "",
     "forceSkipMarkerFallback": "Ersatzmarkierungen erzwingen",
     "forceSkipMarkerFallbackDescription": "Kapitel-Titelmuster auch dann verwenden, wenn Plex über Markierungen verfügt",
     "autoSkipDelay": "Verzögerung für automatisches Überspringen",
@@ -774,6 +783,7 @@
     "playbackDataInvalid": "Der Server hat ungültige Wiedergabeinformationen zurückgegeben.",
     "playbackCancelled": "Die Wiedergabe wurde abgebrochen.",
     "playbackFailed": "Die Wiedergabe konnte nicht gestartet werden.",
+    "mediaUnavailable": "",
     "errorLoadingFileInfo": "Fehler beim Laden der Dateiinfo: ${error}",
     "errorLoadingSeries": "Fehler beim Laden der Serie",
     "musicNotSupported": "Musikwiedergabe wird noch nicht unterstützt",
@@ -859,6 +869,9 @@
     "presetDeleted": "Voreinstellung gelöscht",
     "confirmDeletePreset": "Diese Voreinstellung wirklich löschen?",
     "configPlaceholder": "gpu-api=vulkan\nhwdec=auto\n# comment",
+    "lineHint": "",
+    "addLine": "",
+    "removeLine": "",
     "embeddedVoHint": "vo, gpu-context und gpu-api werden unter Linux ignoriert: eingebettetes Video wird immer über vo=libmpv auf der Videoebene gerendert, und gpu-next (das Compute-Shader wie ArtCNN benötigen) kann nicht eingebettet ausgeführt werden."
   },
   "dialog": {
@@ -1255,6 +1268,10 @@
     "notInLibrary": "Nicht in deiner Mediathek",
     "inTheseLibraries": "In diesen Mediatheken",
     "checkingLibrary": "Deine Mediathek wird überprüft …",
+    "libraryCheckFailed": {
+      "one": "",
+      "other": ""
+    },
     "emptyTitle": "Hier ist noch nichts",
     "emptyMessage": "Zeilen aus ${source} erscheinen hier, sobald sie Inhalte enthalten.",
     "searchHint": "${source} durchsuchen",
@@ -1648,7 +1665,8 @@
       "timedOut": "Der Relay-Server hat nicht rechtzeitig geantwortet",
       "connectionLost": "Die Verbindung wurde geschlossen, bevor die Sitzung bereit war",
       "invalidRelayResponse": "Der Relay-Server hat eine unerwartete Antwort gesendet",
-      "sessionEnded": "Der Host hat die Sitzung beendet"
+      "sessionEnded": "Der Host hat die Sitzung beendet",
+      "sessionUnavailable": ""
     }
   },
   "downloads": {
@@ -2079,6 +2097,10 @@
     "qualityProfile": "Qualitätsprofil",
     "rootFolder": "Stammordner",
     "languageProfile": "Sprachprofil",
+    "tags": "",
+    "noTags": "",
+    "defaultOption": "",
+    "animeNote": "",
     "requestSubmitted": "Anfrage gesendet",
     "requestFailed": "Anfrage fehlgeschlagen: ${error}",
     "requestsLoadFailed": "Anfrageoptionen konnten nicht geladen werden",
@@ -2090,6 +2112,7 @@
     "statusBlocklisted": "Auf der Sperrliste",
     "couldNotReach": "${url} nicht erreichbar: ${error}",
     "noInstanceAtUrl": "Keine Seerr-Instanz unter ${url} (HTTP ${status})",
+    "behindAuthProxy": "",
     "invalidUrl": "Gib eine Serveradresse ein, z. B. https://seerr.example.com",
     "quickConnectUnsupported": "Diese Seerr-Instanz unterstützt Quick Connect nicht. Dafür ist Seerr 3.4 oder neuer erforderlich.",
     "notInitialized": "Die Ersteinrichtung dieser Seerr-Instanz wurde noch nicht abgeschlossen",
@@ -2099,7 +2122,9 @@
     "noSessionCookie": "Seerr hat kein Sitzungscookie ausgestellt",
     "freshCookieRejected": "Seerr hat das neue Sitzungscookie abgelehnt",
     "noUserInformation": "Seerr hat keine Benutzerinformationen zurückgegeben",
-    "sessionRejectedAfterReauth": "Die Sitzung wurde nach der erneuten Anmeldung abgelehnt"
+    "sessionRejectedAfterReauth": "Die Sitzung wurde nach der erneuten Anmeldung abgelehnt",
+    "permissionDenied": "",
+    "permissionRevoked": ""
   },
   "services": {
     "title": "Dienste",

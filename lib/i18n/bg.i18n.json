@@ -169,6 +169,8 @@
     "alwaysKeepSidebarOpenDescription": "Страничната лента остава разгъната и зоната със съдържание се наглася да пасне",
     "showUnwatchedCount": "Показвай броя негледани",
     "showUnwatchedCountDescription": "Показвай броя негледани епизоди при сериали и сезони",
+    "showWatchedIndicators": "",
+    "showWatchedIndicatorsDescription": "",
     "showEpisodeNumberOnCards": "Показвай номера на епизода върху картите",
     "showEpisodeNumberOnCardsDescription": "Показвай сезон и номер на епизод върху картите на епизодите",
     "showSeasonPostersOnTabs": "Показвай постери на сезоните в табовете",
@@ -277,10 +279,17 @@
     "autoPlayNextEpisodeDescription": "Пускай следващия епизод автоматично, когато текущият свърши",
     "playNextCountdown": "Отброяване до следващия епизод",
     "playNextCountdownImmediate": "Пусни веднага",
-    "autoSkipIntro": "Автоматично прескачане на интро",
-    "autoSkipIntroDescription": "Автоматично прескачай интро маркери след няколко секунди",
-    "autoSkipCredits": "Автоматично прескачане на финални надписи",
-    "autoSkipCreditsDescription": "Автоматично прескачай финалните надписи и пускай следващия епизод",
+    "skipIntroMode": "",
+    "skipIntroModeOffDescription": "",
+    "skipIntroModeButtonDescription": "",
+    "skipIntroModeAutoDescription": "",
+    "skipCreditsMode": "",
+    "skipCreditsModeOffDescription": "",
+    "skipCreditsModeButtonDescription": "",
+    "skipCreditsModeAutoDescription": "",
+    "skipMarkerModeOff": "",
+    "skipMarkerModeButton": "",
+    "skipMarkerModeAuto": "",
     "forceSkipMarkerFallback": "Принуди резервни маркери",
     "forceSkipMarkerFallbackDescription": "Използвай шаблони в заглавията на главите дори когато Plex има маркери",
     "autoSkipDelay": "Забавяне за автоматично прескачане",
@@ -774,6 +783,7 @@
     "playbackDataInvalid": "Сървърът върна невалидна информация за възпроизвеждането.",
     "playbackCancelled": "Възпроизвеждането беше отменено.",
     "playbackFailed": "Възпроизвеждането не можа да бъде стартирано.",
+    "mediaUnavailable": "",
     "errorLoadingFileInfo": "Грешка при зареждане на информация за файла: ${error}",
     "errorLoadingSeries": "Грешка при зареждане на сериала",
     "musicNotSupported": "Възпроизвеждането на музика все още не се поддържа",
@@ -859,6 +869,9 @@
     "presetDeleted": "Пресетът е изтрит",
     "confirmDeletePreset": "Сигурни ли сте, че искате да изтриете този пресет?",
     "configPlaceholder": "gpu-api=vulkan\nhwdec=auto\n# comment",
+    "lineHint": "",
+    "addLine": "",
+    "removeLine": "",
     "embeddedVoHint": "vo, gpu-context и gpu-api се игнорират на Linux: вграденото видео винаги се рендерира през vo=libmpv върху видео равнината, а gpu-next (който е нужен за compute шейдъри като ArtCNN) не може да работи вградено."
   },
   "dialog": {
@@ -1255,6 +1268,10 @@
     "notInLibrary": "Не е в твоята библиотека",
     "inTheseLibraries": "В тези библиотеки",
     "checkingLibrary": "Проверка на твоята библиотека...",
+    "libraryCheckFailed": {
+      "one": "",
+      "other": ""
+    },
     "emptyTitle": "Тук все още няма нищо",
     "emptyMessage": "Редовете от ${source} ще се появят тук, когато има съдържание.",
     "searchHint": "Търсене в ${source}",
@@ -1648,7 +1665,8 @@
       "timedOut": "Релейният сървър не отговори навреме",
       "connectionLost": "Връзката се затвори, преди сесията да е готова",
       "invalidRelayResponse": "Релейният сървър изпрати неочакван отговор",
-      "sessionEnded": "Организаторът прекрати сесията"
+      "sessionEnded": "Организаторът прекрати сесията",
+      "sessionUnavailable": ""
     }
   },
   "downloads": {
@@ -2079,6 +2097,10 @@
     "qualityProfile": "Профил за качество",
     "rootFolder": "Основна папка",
     "languageProfile": "Езиков профил",
+    "tags": "",
+    "noTags": "",
+    "defaultOption": "",
+    "animeNote": "",
     "requestSubmitted": "Заявката е изпратена",
     "requestFailed": "Заявката се провали: ${error}",
     "requestsLoadFailed": "Неуспешно зареждане на опциите за заявка",
@@ -2090,6 +2112,7 @@
     "statusBlocklisted": "В списъка с блокирани",
     "couldNotReach": "Неуспешна връзка с ${url}: ${error}",
     "noInstanceAtUrl": "На ${url} няма инстанция на Seerr (HTTP ${status})",
+    "behindAuthProxy": "",
     "invalidUrl": "Въведете адрес на сървър като https://seerr.example.com",
     "quickConnectUnsupported": "Тази Seerr инстанция не поддържа Quick Connect. Изисква се Seerr 3.4 или по-нова версия.",
     "notInitialized": "Тази инстанция на Seerr не е завършила първоначалната настройка",
@@ -2099,7 +2122,9 @@
     "noSessionCookie": "Seerr не издаде бисквитка за сесията",
     "freshCookieRejected": "Seerr отхвърли новата бисквитка за сесията",
     "noUserInformation": "Seerr не върна информация за потребителя",
-    "sessionRejectedAfterReauth": "Сесията беше отхвърлена след повторния вход"
+    "sessionRejectedAfterReauth": "Сесията беше отхвърлена след повторния вход",
+    "permissionDenied": "",
+    "permissionRevoked": ""
   },
   "services": {
     "title": "Услуги",

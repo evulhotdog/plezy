@@ -169,6 +169,8 @@
     "alwaysKeepSidebarOpenDescription": "Боковая панель остаётся развёрнутой, область контента подстраивается",
     "showUnwatchedCount": "Показывать количество непросмотренных",
     "showUnwatchedCountDescription": "Отображать количество непросмотренных эпизодов для сериалов и сезонов",
+    "showWatchedIndicators": "",
+    "showWatchedIndicatorsDescription": "",
     "showEpisodeNumberOnCards": "Показывать номер эпизода на карточках",
     "showEpisodeNumberOnCardsDescription": "Показывать номер сезона и серии на карточках серий",
     "showSeasonPostersOnTabs": "Показывать постеры сезонов на вкладках",
@@ -277,10 +279,17 @@
     "autoPlayNextEpisodeDescription": "Автоматически запускать следующий эпизод, когда заканчивается текущий",
     "playNextCountdown": "Обратный отсчёт перед следующим",
     "playNextCountdownImmediate": "Воспроизводить сразу",
-    "autoSkipIntro": "Автопропуск вступления",
-    "autoSkipIntroDescription": "Автоматически пропускать маркеры вступления через несколько секунд",
-    "autoSkipCredits": "Автопропуск титров",
-    "autoSkipCreditsDescription": "Автоматически пропускать титры и воспроизводить следующий эпизод",
+    "skipIntroMode": "",
+    "skipIntroModeOffDescription": "",
+    "skipIntroModeButtonDescription": "",
+    "skipIntroModeAutoDescription": "",
+    "skipCreditsMode": "",
+    "skipCreditsModeOffDescription": "",
+    "skipCreditsModeButtonDescription": "",
+    "skipCreditsModeAutoDescription": "",
+    "skipMarkerModeOff": "",
+    "skipMarkerModeButton": "",
+    "skipMarkerModeAuto": "",
     "forceSkipMarkerFallback": "Всегда использовать резервные маркеры",
     "forceSkipMarkerFallbackDescription": "Использовать шаблоны названий глав, даже если в Plex есть собственные маркеры",
     "autoSkipDelay": "Задержка автопропуска",
@@ -782,6 +791,7 @@
     "playbackDataInvalid": "Сервер вернул некорректные сведения для воспроизведения.",
     "playbackCancelled": "Воспроизведение отменено.",
     "playbackFailed": "Не удалось начать воспроизведение.",
+    "mediaUnavailable": "",
     "errorLoadingFileInfo": "Ошибка загрузки информации о файле: ${error}",
     "errorLoadingSeries": "Ошибка загрузки сериала",
     "musicNotSupported": "Воспроизведение музыки пока не поддерживается",
@@ -867,6 +877,9 @@
     "presetDeleted": "Пресет удалён",
     "confirmDeletePreset": "Вы уверены, что хотите удалить этот пресет?",
     "configPlaceholder": "gpu-api=vulkan\nhwdec=auto\n# comment",
+    "lineHint": "",
+    "addLine": "",
+    "removeLine": "",
     "embeddedVoHint": "vo, gpu-context и gpu-api игнорируются в Linux: встроенное видео всегда отображается через vo=libmpv на видеоплоскости, а gpu-next (нужный для compute-шейдеров вроде ArtCNN) не может работать во встроенном режиме."
   },
   "dialog": {
@@ -1267,6 +1280,12 @@
     "notInLibrary": "Нет в вашей библиотеке",
     "inTheseLibraries": "В этих библиотеках",
     "checkingLibrary": "Проверка вашей библиотеки...",
+    "libraryCheckFailed": {
+      "one": "",
+      "few": "",
+      "many": "",
+      "other": ""
+    },
     "emptyTitle": "Здесь пока ничего нет",
     "emptyMessage": "Разделы из ${source} появятся здесь, когда в них появится контент.",
     "searchHint": "Поиск в ${source}",
@@ -1668,7 +1687,8 @@
       "timedOut": "Сервер ретрансляции не ответил вовремя",
       "connectionLost": "Соединение закрылось до того, как сессия была готова",
       "invalidRelayResponse": "Сервер ретрансляции прислал неожиданный ответ",
-      "sessionEnded": "Организатор завершил сессию"
+      "sessionEnded": "Организатор завершил сессию",
+      "sessionUnavailable": ""
     }
   },
   "downloads": {
@@ -2099,6 +2119,10 @@
     "qualityProfile": "Профиль качества",
     "rootFolder": "Корневая папка",
     "languageProfile": "Языковой профиль",
+    "tags": "",
+    "noTags": "",
+    "defaultOption": "",
+    "animeNote": "",
     "requestSubmitted": "Запрос отправлен",
     "requestFailed": "Ошибка запроса: ${error}",
     "requestsLoadFailed": "Не удалось загрузить параметры запроса",
@@ -2110,6 +2134,7 @@
     "statusBlocklisted": "В списке блокировки",
     "couldNotReach": "Не удалось связаться с ${url}: ${error}",
     "noInstanceAtUrl": "По адресу ${url} нет экземпляра Seerr (HTTP ${status})",
+    "behindAuthProxy": "",
     "invalidUrl": "Введите адрес сервера, например https://seerr.example.com",
     "quickConnectUnsupported": "Этот экземпляр Seerr не поддерживает Quick Connect. Нужна версия Seerr 3.4 или новее.",
     "notInitialized": "Первоначальная настройка этого экземпляра Seerr не завершена",
@@ -2119,7 +2144,9 @@
     "noSessionCookie": "Seerr не выдал cookie-файл сеанса",
     "freshCookieRejected": "Seerr отклонил новый cookie-файл сеанса",
     "noUserInformation": "Seerr не вернул сведения о пользователе",
-    "sessionRejectedAfterReauth": "Сеанс был отклонён после повторного входа"
+    "sessionRejectedAfterReauth": "Сеанс был отклонён после повторного входа",
+    "permissionDenied": "",
+    "permissionRevoked": ""
   },
   "services": {
     "title": "Сервисы",

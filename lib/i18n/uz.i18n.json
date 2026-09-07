@@ -169,6 +169,8 @@
     "alwaysKeepSidebarOpenDescription": "Yon menyu ochiq holatda qoladi",
     "showUnwatchedCount": "Koʻrilmaganlar sonini koʻrsatish",
     "showUnwatchedCountDescription": "Seriallar va mavsumlarda koʻrilmagan qismlar sonini koʻrsatish",
+    "showWatchedIndicators": "",
+    "showWatchedIndicatorsDescription": "",
     "showEpisodeNumberOnCards": "Kartochkalarda qism raqamini koʻrsatish",
     "showEpisodeNumberOnCardsDescription": "Qism kartochkalarida mavsum va qism raqamini koʻrsatish",
     "showSeasonPostersOnTabs": "Varaqlarda mavsum posterlarini koʻrsatish",
@@ -277,10 +279,17 @@
     "autoPlayNextEpisodeDescription": "Qism tugagach, keyingisini avtomatik ijro etish",
     "playNextCountdown": "Keyingi qism sanogʻi",
     "playNextCountdownImmediate": "Darhol ijro etish",
-    "autoSkipIntro": "Kirish qismini (Intro) avtomatik oʻtkazish",
-    "autoSkipIntroDescription": "Bir necha soniyadan soʻng kirish qismlarini avtomatik oʻtkazish",
-    "autoSkipCredits": "Titrlarni avtomatik oʻtkazish",
-    "autoSkipCreditsDescription": "Titrlarni oʻtkazib yuborish va keyingi qismni ijro etish",
+    "skipIntroMode": "",
+    "skipIntroModeOffDescription": "",
+    "skipIntroModeButtonDescription": "",
+    "skipIntroModeAutoDescription": "",
+    "skipCreditsMode": "",
+    "skipCreditsModeOffDescription": "",
+    "skipCreditsModeButtonDescription": "",
+    "skipCreditsModeAutoDescription": "",
+    "skipMarkerModeOff": "",
+    "skipMarkerModeButton": "",
+    "skipMarkerModeAuto": "",
     "forceSkipMarkerFallback": "Zahira belgilarini majburlash",
     "forceSkipMarkerFallbackDescription": "Plex belgilari boʻlsa ham boʻlim sarlavhasi shablonlaridan foydalanish",
     "autoSkipDelay": "Avtomatik oʻtkazish kechikishi",
@@ -774,6 +783,7 @@
     "playbackDataInvalid": "Server notoʻgʻri ijro maʼlumotlarini qaytardi.",
     "playbackCancelled": "Ijro bekor qilindi.",
     "playbackFailed": "Ijroni ishga tushirishda xatolik.",
+    "mediaUnavailable": "",
     "errorLoadingFileInfo": "Fayl maʼlumotlarini yuklashda xatolik: ${error}",
     "errorLoadingSeries": "Serialni yuklashda xatolik",
     "musicNotSupported": "Musiqa ijrosi hali qoʻllab-quvvatlanmaydi",
@@ -859,6 +869,9 @@
     "presetDeleted": "Sozlama oʻchirildi",
     "confirmDeletePreset": "Ushbu sozlamani oʻchirishga ishonchingiz komilmi?",
     "configPlaceholder": "gpu-api=vulkan\nhwdec=auto\n# izoh",
+    "lineHint": "",
+    "addLine": "",
+    "removeLine": "",
     "embeddedVoHint": "Linux-da vo, gpu-context va gpu-api e'tiborga olinmaydi: ichki video har doim video tekisligida vo=libmpv orqali ko'rsatiladi va gpu-next (ArtCNN kabi compute shaderlar uchun zarur) ichki rejimda ishlay olmaydi."
   },
   "dialog": {
@@ -1255,6 +1268,10 @@
     "notInLibrary": "Kutubxonangizda yoʻq",
     "inTheseLibraries": "Ushbu kutubxonalarda bor",
     "checkingLibrary": "Kutubxona tekshirilmoqda...",
+    "libraryCheckFailed": {
+      "one": "",
+      "other": ""
+    },
     "emptyTitle": "Hali bu yerda hech narsa yoʻq",
     "emptyMessage": "${source} manbasidan olingan qatorlar bu yerda koʻrinadi.",
     "searchHint": "${source} ichidan qidirish",
@@ -1648,7 +1665,8 @@
       "timedOut": "Rele serveri oʻz vaqtida javob bermadi",
       "connectionLost": "Seans tayyor boʻlmasidan ulanish uzildi",
       "invalidRelayResponse": "Rele serveri kutilmagan javob yubordi",
-      "sessionEnded": "Tashkilotchi seansni tugatdi"
+      "sessionEnded": "Tashkilotchi seansni tugatdi",
+      "sessionUnavailable": ""
     }
   },
   "downloads": {
@@ -2079,6 +2097,10 @@
     "qualityProfile": "Sifat profili",
     "rootFolder": "Asosiy jild",
     "languageProfile": "Til profili",
+    "tags": "",
+    "noTags": "",
+    "defaultOption": "",
+    "animeNote": "",
     "requestSubmitted": "Soʻrov yuborildi",
     "requestFailed": "Soʻrov xatoligi: ${error}",
     "requestsLoadFailed": "Parametrlarni yuklab boʻlmadi",
@@ -2090,6 +2112,7 @@
     "statusBlocklisted": "Bloklangan roʻyxatda",
     "couldNotReach": "${url} manziliga ulanib boʻlmadi: ${error}",
     "noInstanceAtUrl": "${url} manzilida Seerr nusxasi yoʻq (HTTP ${status})",
+    "behindAuthProxy": "",
     "invalidUrl": "Server manzilini kiriting, masalan: https://seerr.example.com",
     "quickConnectUnsupported": "Bu Seerr nusxasi Tezkor ulanishni qoʻllab-quvvatlamaydi. Buning uchun Seerr 3.4 yoki undan yangi versiya kerak.",
     "notInitialized": "Bu Seerr nusxasining dastlabki sozlamasi yakunlanmagan",
@@ -2099,7 +2122,9 @@
     "noSessionCookie": "Seerr seans cookie-faylini bermadi",
     "freshCookieRejected": "Seerr yangi seans cookie-faylini rad etdi",
     "noUserInformation": "Seerr foydalanuvchi maʼlumotlarini qaytarmadi",
-    "sessionRejectedAfterReauth": "Qayta kirilgandan keyin seans rad etildi"
+    "sessionRejectedAfterReauth": "Qayta kirilgandan keyin seans rad etildi",
+    "permissionDenied": "",
+    "permissionRevoked": ""
   },
   "services": {
     "title": "Xizmatlar",
