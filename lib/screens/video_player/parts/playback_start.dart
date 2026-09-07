@@ -5,6 +5,14 @@ extension _VideoPlayerPlaybackStartMethods on VideoPlayerScreenState {
     final currentPlayer = player;
     if (!mounted || currentPlayer == null) return;
     final attempt = _beginPlaybackAttempt(currentPlayer);
+    final watchTogether = _activeWatchTogetherSession();
+    final watchTogetherLease = widget.watchTogetherLease;
+    _watchTogetherLease = watchTogetherLease;
+    if (watchTogether != null && watchTogetherLease != null && watchTogetherLease.isCurrent) {
+      _watchTogetherProvider = watchTogether;
+      watchTogether.onPlayerMediaSwitched = _handlePlayerMediaSwitch;
+    }
+    bool isCurrentStart() => attempt.isCurrent && (watchTogetherLease == null || watchTogetherLease.isCurrent);
     _firstFrame.resetRenderedForAttempt();
     _hasFatalPlaybackError = false;
     // 503s observed from here on belong to this attempt's open.
@@ -64,20 +72,25 @@ extension _VideoPlayerPlaybackStartMethods on VideoPlayerScreenState {
           throw PlaybackException(t.liveTv.failedToBuildStreamUrl, reason: PlaybackFailureReason.noPlayableSource);
         }
 
-        // Track stream start epoch for position calculations
+        // Track the requested epoch separately from MPV's source-local clock.
+        int? targetEpoch;
         if (offsetSeconds != null) {
-          _live.streamStartEpoch = captureBuffer!.startedAt + offsetSeconds;
+          targetEpoch = (captureBuffer!.startedAt + offsetSeconds).round();
+          if (currentPlayer is! PlayerNative) {
+            _live.streamStartEpoch = captureBuffer.startedAt + offsetSeconds;
+          }
           _live.atLiveEdge = false;
           _live.playbackStartTime = DateTime.now();
         } else {
-          _live.markStreamRestartedAtLiveEdge();
+          _live.markStreamRestartedAtLiveEdge(captureBuffer);
+          targetEpoch = captureBuffer == null ? null : _live.streamStartEpoch.round();
         }
 
-        await currentPlayer.setProperty('force-seekable', 'no');
-        await currentPlayer.open(
-          Media(streamUrl, headers: const {'Accept-Language': 'en'}),
+        await _openLiveStream(
+          currentPlayer,
+          streamUrl,
+          targetEpoch: targetEpoch,
           play: !PlatformDetector.isAutomotive(),
-          isLive: true,
         );
         if (!attempt.isCurrent) return;
 
@@ -207,15 +220,15 @@ extension _VideoPlayerPlaybackStartMethods on VideoPlayerScreenState {
         subtitleSelection: subtitleSelection,
         headers: streamHeaders,
         isLocalMedia: _isOfflinePlayback,
-        isCurrent: () => attempt.isCurrent,
+        isCurrent: isCurrentStart,
         // When a Watch Together session is active the sync layer owns the
         // start: open paused everywhere and let the host coordinate one
         // simultaneous group start.
-        watchTogetherOwnsStart: _watchTogetherOwnsPlaybackStart,
+        watchTogetherOwnsStart: () => watchTogetherLease != null && _watchTogetherOwnsPlaybackStart(),
         resolveShouldAutoStart: (wtOwnsStart) => !wtOwnsStart,
         resumePosition: () => resumePosition,
         plexClient: () => plexClientForTracks,
-        getProfileSettings: () => context.read<UserProfileProvider>().profileSettings,
+        getProfileSettings: () => context.read<AccountPreferencesController>().activePreferences,
         preferredAudioTrack: _preferredAudioTrack,
         primarySubtitleTranscoding: () => _isTranscoding,
         ensureAudioFocus: ensureAudioFocus,
@@ -240,12 +253,15 @@ extension _VideoPlayerPlaybackStartMethods on VideoPlayerScreenState {
           // Attach player to Watch Together session for sync (if in session).
           // With a frame-rate startup gate pending, sync readiness waits for
           // its release so the group start can't fire mid display switch.
-          if (mounted && !_isOfflinePlayback) {
-            if (wtOwnsStart && holdPlaybackStart) {
-              wtStartupHold = Completer<void>();
-            }
-            _attachToWatchTogetherSession(startupHold: wtStartupHold?.future);
-            _notifyWatchTogetherMediaChange();
+          if (isCurrentStart() && !_isOfflinePlayback && watchTogetherLease != null) {
+            _commitWatchTogetherSelection(
+              watchTogether,
+              watchTogetherLease,
+              _currentMetadata,
+              resumePosition ?? Duration.zero,
+            );
+            if (wtOwnsStart && holdPlaybackStart) wtStartupHold = Completer<void>();
+            _attachToWatchTogetherSession(lease: watchTogetherLease, startupHold: wtStartupHold?.future);
           }
           if (shouldAutoPlay && PlatformDetector.isAutomotive()) {
             await _playWithPlaybackIntent(currentPlayer);

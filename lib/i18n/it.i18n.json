@@ -169,6 +169,8 @@
     "alwaysKeepSidebarOpenDescription": "La barra laterale rimane espansa e l'area del contenuto si adatta",
     "showUnwatchedCount": "Mostra il numero di episodi non visti",
     "showUnwatchedCountDescription": "Mostra il numero di episodi non visti per serie e stagioni",
+    "showWatchedIndicators": "",
+    "showWatchedIndicatorsDescription": "",
     "showEpisodeNumberOnCards": "Mostra il numero dell'episodio sulle schede",
     "showEpisodeNumberOnCardsDescription": "Mostra il numero della stagione e dell'episodio sulle schede degli episodi",
     "showSeasonPostersOnTabs": "Mostra i poster delle stagioni nelle schede",
@@ -273,10 +275,17 @@
     "autoPlayNextEpisodeDescription": "Avvia automaticamente l'episodio successivo quando termina quello in riproduzione",
     "playNextCountdown": "Conto alla rovescia del successivo",
     "playNextCountdownImmediate": "Riproduci subito",
-    "autoSkipIntro": "Salta automaticamente la sigla iniziale",
-    "autoSkipIntroDescription": "Salta automaticamente i marcatori della sigla iniziale dopo alcuni secondi",
-    "autoSkipCredits": "Salta automaticamente i titoli di coda",
-    "autoSkipCreditsDescription": "Salta automaticamente i titoli di coda e riproduce l'episodio successivo",
+    "skipIntroMode": "",
+    "skipIntroModeOffDescription": "",
+    "skipIntroModeButtonDescription": "",
+    "skipIntroModeAutoDescription": "",
+    "skipCreditsMode": "",
+    "skipCreditsModeOffDescription": "",
+    "skipCreditsModeButtonDescription": "",
+    "skipCreditsModeAutoDescription": "",
+    "skipMarkerModeOff": "",
+    "skipMarkerModeButton": "",
+    "skipMarkerModeAuto": "",
     "forceSkipMarkerFallback": "Forza i marcatori di ripiego",
     "forceSkipMarkerFallbackDescription": "Usa i modelli dei titoli dei capitoli anche quando Plex dispone di marcatori",
     "autoSkipDelay": "Ritardo del salto automatico",
@@ -770,6 +779,7 @@
     "playbackDataInvalid": "Il server ha restituito informazioni di riproduzione non valide.",
     "playbackCancelled": "Riproduzione annullata.",
     "playbackFailed": "Impossibile avviare la riproduzione.",
+    "mediaUnavailable": "",
     "errorLoadingFileInfo": "Errore durante il caricamento delle informazioni sul file: ${error}",
     "errorLoadingSeries": "Errore durante il caricamento della serie",
     "musicNotSupported": "La riproduzione musicale non è ancora supportata",
@@ -855,6 +865,9 @@
     "presetDeleted": "Preset eliminato",
     "confirmDeletePreset": "Sei sicuro di voler eliminare questo preset?",
     "configPlaceholder": "gpu-api=vulkan\nhwdec=auto\n# comment",
+    "lineHint": "",
+    "addLine": "",
+    "removeLine": "",
     "embeddedVoHint": "vo, gpu-context e gpu-api vengono ignorati su Linux: il video incorporato viene sempre renderizzato tramite vo=libmpv sul piano video e gpu-next (che gli shader di calcolo come ArtCNN richiedono) non può essere eseguito in modalità incorporata."
   },
   "dialog": {
@@ -1251,6 +1264,10 @@
     "notInLibrary": "Non è nella tua libreria",
     "inTheseLibraries": "In queste librerie",
     "checkingLibrary": "Ricerca nella tua libreria...",
+    "libraryCheckFailed": {
+      "one": "",
+      "other": ""
+    },
     "emptyTitle": "Ancora niente qui",
     "emptyMessage": "Le sezioni di ${source} appariranno qui quando saranno disponibili dei contenuti.",
     "searchHint": "Cerca su ${source}",
@@ -1644,7 +1661,8 @@
       "timedOut": "Il server relay non ha risposto in tempo",
       "connectionLost": "La connessione si è chiusa prima che la sessione fosse pronta",
       "invalidRelayResponse": "Il server relay ha inviato una risposta imprevista",
-      "sessionEnded": "L’host ha terminato la sessione"
+      "sessionEnded": "L’host ha terminato la sessione",
+      "sessionUnavailable": ""
     }
   },
   "downloads": {
@@ -2075,6 +2093,10 @@
     "qualityProfile": "Profilo di qualità",
     "rootFolder": "Cartella radice",
     "languageProfile": "Profilo della lingua",
+    "tags": "",
+    "noTags": "",
+    "defaultOption": "",
+    "animeNote": "",
     "requestSubmitted": "Richiesta inviata",
     "requestFailed": "Richiesta non riuscita: ${error}",
     "requestsLoadFailed": "Impossibile caricare le opzioni di richiesta",
@@ -2086,6 +2108,7 @@
     "statusBlocklisted": "Nella lista di blocco",
     "couldNotReach": "Impossibile raggiungere ${url}: ${error}",
     "noInstanceAtUrl": "Nessuna istanza Seerr all'indirizzo ${url} (HTTP ${status})",
+    "behindAuthProxy": "",
     "invalidUrl": "Inserisci un indirizzo del server come https://seerr.example.com",
     "quickConnectUnsupported": "Questa istanza Seerr non supporta Quick Connect. È necessaria la versione 3.4 o successiva di Seerr.",
     "notInitialized": "Questa istanza Seerr non ha completato la configurazione iniziale",
@@ -2095,7 +2118,9 @@
     "noSessionCookie": "Seerr non ha generato un cookie di sessione",
     "freshCookieRejected": "Seerr ha rifiutato il nuovo cookie di sessione",
     "noUserInformation": "Seerr non ha restituito le informazioni sull'utente",
-    "sessionRejectedAfterReauth": "La sessione è stata rifiutata dopo aver effettuato nuovamente l'accesso"
+    "sessionRejectedAfterReauth": "La sessione è stata rifiutata dopo aver effettuato nuovamente l'accesso",
+    "permissionDenied": "",
+    "permissionRevoked": ""
   },
   "services": {
     "title": "Servizi",

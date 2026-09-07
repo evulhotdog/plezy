@@ -27,9 +27,12 @@ import '../models/catalog/catalog_item.dart';
 import '../models/catalog/catalog_labels.dart';
 import '../models/catalog/catalog_metadata.dart';
 import '../providers/catalog_sources_provider.dart';
+import '../providers/multi_server_provider.dart';
+import '../providers/seerr_account_provider.dart';
 import '../services/catalog/catalog_library_matcher.dart';
 import '../services/catalog/catalog_source.dart';
 import '../services/catalog/seerr_catalog_source.dart';
+import '../services/data_aggregation_service.dart';
 import '../utils/app_logger.dart';
 import '../utils/catalog_navigation_helper.dart';
 import '../utils/desktop_window_padding.dart';
@@ -92,13 +95,18 @@ class _CatalogItemDetailScreenState extends State<CatalogItemDetailScreen> {
   final Map<String, FocusNode> _libraryMatchNodesByKey = {};
   List<FocusNode> _libraryMatchFocusNodes = const [];
   CatalogSource? _watchlistSource;
-  SeerrCatalogSource? _requestSource;
   bool _mutatingWatchlist = false;
 
   CatalogItem? _detailItem;
 
   /// Library items matching this catalog item; null while resolving.
   List<MediaItem>? _matches;
+
+  /// Coverage belongs to the newest launched (detail-enriched) query, not the
+  /// union of historical successes. Verified copies are merged independently.
+  int _resolutionGeneration = 0;
+  bool _resolvingMatches = false;
+  final Set<String> _uncheckedServerIds = {};
 
   /// Cast/characters from the item's own source; null while loading (the
   /// section only renders once loaded non-empty).
@@ -121,16 +129,6 @@ class _CatalogItemDetailScreenState extends State<CatalogItemDetailScreen> {
     unawaited(_loadDetail());
     final sources = context.read<CatalogSourcesProvider>();
     _watchlistSource = sources.watchlistSourceFor(widget.item);
-    // Request needs a connected Seerr, the permission for this kind, and a
-    // tmdb id. The id is checked at build time from the detail-enriched item,
-    // not here: Trakt items carry one natively and MAL items get theirs from
-    // the Fribb mapping at row time, but Plex Discover's hub/search/related
-    // endpoints ignore includeGuids, so a Plex item's tmdb id only arrives
-    // with the detail fetch (issue #1959).
-    final seerr = sources.seerrSource;
-    if (seerr != null && seerr.canRequest(widget.item.kind)) {
-      _requestSource = seerr;
-    }
     final source = _watchlistSource;
     if (source != null) {
       source.watchlistChanges.addListener(_onWatchlistChanged);
@@ -169,17 +167,33 @@ class _CatalogItemDetailScreenState extends State<CatalogItemDetailScreen> {
   }
 
   Future<void> _resolveMatches(CatalogItem item) async {
-    List<MediaItem> matches;
+    final generation = ++_resolutionGeneration;
+    _resolvingMatches = true;
+    LibraryLookupResult result;
     try {
-      matches = await context.read<CatalogLibraryMatcher>().match(item);
+      result = await context.read<CatalogLibraryMatcher>().match(item);
     } catch (e) {
       appLogger.w('Catalog library match failed for ${item.identityKey}', error: e);
-      // A failed pass is no evidence about copies an earlier pass already
-      // found; only claim "not in your library" when nothing has resolved.
-      if (_matches == null) _mergeMatches(const []);
+      if (!mounted) return;
+      if (generation == _resolutionGeneration) {
+        _resolvingMatches = false;
+        _uncheckedServerIds
+          ..clear()
+          ..addAll(context.read<MultiServerProvider>().expectedServerIds);
+      }
+      _mergeMatches(const []);
       return;
     }
-    _mergeMatches(matches);
+    if (!mounted) return;
+    if (generation == _resolutionGeneration) {
+      _resolvingMatches = false;
+      _uncheckedServerIds
+        ..clear()
+        ..addAll(result.failedServerIds)
+        ..addAll(result.cancelledServerIds)
+        ..addAll(result.unqueriedServerIds);
+    }
+    _mergeMatches(result.items);
   }
 
   /// Fold a resolution pass into the visible copies.
@@ -277,10 +291,16 @@ class _CatalogItemDetailScreenState extends State<CatalogItemDetailScreen> {
       // full set whenever enrichment added id forms — not just when the bare
       // lookup came back empty: the exact `plex://` guid finds only copies in
       // libraries on the modern agent, while a legacy-agent sibling is
-      // reachable solely through the imdb/tmdb forms (#1754). The result
-      // merges, so a re-ask can only add copies.
+      // reachable solely through the imdb/tmdb forms (#1754). Likewise when
+      // it added title candidates (Trakt aliases and translations, #2098): a
+      // copy filed under a romaji or localized title is reachable only
+      // through that title. The result merges, so a re-ask can only add
+      // copies.
       final gainedIds = !widget.item.ids.allKeys.toSet().containsAll(detail.item.ids.allKeys);
-      if (gainedIds) {
+      final gainedTitles = !CatalogLibraryMatcher.lookupTitles(
+        widget.item,
+      ).toSet().containsAll(CatalogLibraryMatcher.lookupTitles(detail.item));
+      if (gainedIds || gainedTitles) {
         unawaited(_resolveMatches(detail.item));
       }
     } catch (e) {
@@ -299,8 +319,24 @@ class _CatalogItemDetailScreenState extends State<CatalogItemDetailScreen> {
 
   bool get _hasTrailer => _item.trailerUrl?.trim().isNotEmpty ?? false;
 
+  /// The Seerr source when the signed-in user may request this kind. Read
+  /// live rather than captured in initState: the account provider adopts
+  /// permission changes in place (bind-time refresh, silent re-auth, a
+  /// denied request's `/auth/me` probe) without rebuilding the client, and a
+  /// disconnect swaps the source for null — a captured source would outlive
+  /// its disposed client. `build` subscribes to both so the action bar
+  /// tracks grants and revocations.
+  SeerrCatalogSource? get _requestSource {
+    final seerr = context.read<CatalogSourcesProvider>().seerrSource;
+    return seerr != null && seerr.canRequest(widget.item.kind) ? seerr : null;
+  }
+
   /// Whether the Request action can actually render: the tmdb id may only
-  /// arrive with the detail fetch (see initState), so read the enriched item.
+  /// arrive with the detail fetch (see [_loadDetail]), so read the enriched
+  /// item. Trakt items carry one natively and MAL items get theirs from the
+  /// Fribb mapping at row time, but Plex Discover's hub/search/related
+  /// endpoints ignore includeGuids, so a Plex item's tmdb id only arrives
+  /// with the detail fetch (issue #1959).
   bool get _canRequest => _requestSource != null && _item.ids.tmdb != null;
 
   bool get _hasActions => _watchlistSource != null || _canRequest || _hasTrailer;
@@ -629,14 +665,18 @@ class _CatalogItemDetailScreenState extends State<CatalogItemDetailScreen> {
   }
 
   /// Library availability, resolved in place: a progress row while the
-  /// matcher runs, "Not in your library" when nothing matched, otherwise an
-  /// "In these libraries" list whose rows open the normal media detail
-  /// screen. Rows are focusable tiles (dpad-safe, background focus effect).
+  /// matcher runs, "Not in your library" when every server answered and none
+  /// matched, "Couldn't check n servers" when nothing matched but a server
+  /// never answered, otherwise an "In these libraries" list whose rows open
+  /// the normal media detail screen — with the unchecked count beneath it
+  /// when a server sat the lookup out. Rows are focusable tiles (dpad-safe,
+  /// background focus effect).
   Widget _buildLibrarySection(ThemeData theme) {
-    final mutedStyle = theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurface.withValues(alpha: 0.5));
+    final mutedColor = theme.colorScheme.onSurface.withValues(alpha: 0.5);
+    final mutedStyle = theme.textTheme.bodyMedium?.copyWith(color: mutedColor);
     final matches = _matches;
 
-    if (matches == null) {
+    if (matches == null || (matches.isEmpty && _resolvingMatches)) {
       return Row(
         children: [
           const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
@@ -646,14 +686,19 @@ class _CatalogItemDetailScreenState extends State<CatalogItemDetailScreen> {
       );
     }
 
+    final unchecked = _uncheckedServerIds.length;
+    Widget note(String text, {required IconData icon}) => Row(
+      children: [
+        AppIcon(icon, fill: 1, size: 18, color: mutedColor),
+        const SizedBox(width: 8),
+        Expanded(child: Text(text, style: mutedStyle)),
+      ],
+    );
+
     if (matches.isEmpty) {
-      return Row(
-        children: [
-          AppIcon(Symbols.info_rounded, fill: 1, size: 18, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
-          const SizedBox(width: 8),
-          Text(t.explore.notInLibrary, style: mutedStyle),
-        ],
-      );
+      return unchecked == 0
+          ? note(t.explore.notInLibrary, icon: Symbols.info_rounded)
+          : note(t.explore.libraryCheckFailed(n: unchecked), icon: Symbols.cloud_off_rounded);
     }
 
     return Column(
@@ -669,6 +714,10 @@ class _CatalogItemDetailScreenState extends State<CatalogItemDetailScreen> {
             for (var index = 0; index < matches.length; index++) _buildLibraryMatchTile(matches[index], index),
           ],
         ),
+        if (unchecked > 0) ...[
+          const SizedBox(height: 8),
+          note(t.explore.libraryCheckFailed(n: unchecked), icon: Symbols.cloud_off_rounded),
+        ],
       ],
     );
   }
@@ -1256,6 +1305,10 @@ class _CatalogItemDetailScreenState extends State<CatalogItemDetailScreen> {
     final theme = Theme.of(context);
     final onWatchlist = _isOnWatchlist;
     final tmdbId = item.ids.tmdb;
+    // Subscriptions for [_requestSource]: the source itself (disconnect) and
+    // the permission mask (grant/revoke), both adopted in place upstream.
+    context.select<CatalogSourcesProvider, SeerrCatalogSource?>((sources) => sources.seerrSource);
+    context.select<SeerrAccountProvider?, int?>((account) => account?.permissions);
     final artworkDpr = MediaImageHelper.effectiveDevicePixelRatio(context);
     // The backdrop strip spans the full screen width (Positioned left/right: 0
     // below), and backdropFor is width-keyed: target the rendered width, not
@@ -1310,161 +1363,176 @@ class _CatalogItemDetailScreenState extends State<CatalogItemDetailScreen> {
                             ),
                           ),
                         ),
-                      Padding(
-                        padding: EdgeInsets.fromLTRB(24, viewInsets.top + 120, 24, viewInsets.bottom + 32),
-                        child: Column(
-                          crossAxisAlignment: .start,
-                          children: [
-                            Row(
-                              crossAxisAlignment: .start,
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: OptimizedMediaImage.poster(imagePath: posterUrl, width: 140, height: 210),
-                                ),
-                                const SizedBox(width: 20),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: .start,
-                                    children: [
-                                      if (item.tagline?.trim() case final tagline? when tagline.isNotEmpty) ...[
-                                        Text(
-                                          tagline,
-                                          style: theme.textTheme.titleMedium?.copyWith(
-                                            color: theme.colorScheme.onSurface.withValues(alpha: 0.75),
-                                            fontStyle: FontStyle.italic,
+                      // Horizontal-only SafeArea: the backdrop above stays
+                      // full-bleed; only the foreground content clears the
+                      // landscape notch. Vertical insets are baked into the
+                      // padding (see above).
+                      SafeArea(
+                        top: false,
+                        bottom: false,
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(24, viewInsets.top + 120, 24, viewInsets.bottom + 32),
+                          child: Column(
+                            crossAxisAlignment: .start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: .start,
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: OptimizedMediaImage.poster(imagePath: posterUrl, width: 140, height: 210),
+                                  ),
+                                  const SizedBox(width: 20),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: .start,
+                                      children: [
+                                        if (item.tagline?.trim() case final tagline? when tagline.isNotEmpty) ...[
+                                          Text(
+                                            tagline,
+                                            style: theme.textTheme.titleMedium?.copyWith(
+                                              color: theme.colorScheme.onSurface.withValues(alpha: 0.75),
+                                              fontStyle: FontStyle.italic,
+                                            ),
                                           ),
-                                        ),
-                                        const SizedBox(height: 6),
-                                      ],
-                                      Text(
-                                        item.title,
-                                        style: theme.textTheme.headlineMedium,
-                                        maxLines: 3,
-                                        overflow: .ellipsis,
-                                      ),
-                                      if (_metaLine.isNotEmpty) ...[
-                                        const SizedBox(height: 8),
+                                          const SizedBox(height: 6),
+                                        ],
                                         Text(
-                                          _metaLine,
-                                          style: theme.textTheme.bodyMedium?.copyWith(
-                                            color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                                          ),
+                                          item.title,
+                                          style: theme.textTheme.headlineMedium,
+                                          maxLines: 3,
+                                          overflow: .ellipsis,
                                         ),
-                                      ],
-                                      if (item.genres?.isNotEmpty ?? false) ...[
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          item.genres!.join(' • '),
-                                          style: theme.textTheme.bodySmall?.copyWith(
-                                            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                                        if (_metaLine.isNotEmpty) ...[
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            _metaLine,
+                                            style: theme.textTheme.bodyMedium?.copyWith(
+                                              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                                            ),
                                           ),
-                                        ),
-                                      ],
-                                      const SizedBox(height: 16),
-                                      if (_hasActions)
-                                        FocusableActionBar(
-                                          key: _actionBarKey,
-                                          onNavigateDown: _focusSectionBelowActions,
-                                          actions: [
-                                            if (_watchlistSource != null)
-                                              FocusableAction(
-                                                // Stable identities so the focused binding survives the
-                                                // list-shape changes of async enrichment (watchlist/request
-                                                // sources and trailer URL arrive at different times).
-                                                debugLabel: 'catalog_watchlist',
-                                                icon: onWatchlist ?? false
-                                                    ? Symbols.bookmark_added_rounded
-                                                    : Symbols.bookmark_add_rounded,
-                                                tooltip: onWatchlist ?? false
-                                                    ? t.explore.removeFromWatchlist
-                                                    : t.explore.addToWatchlist,
-                                                onPressed: () => unawaited(_toggleWatchlist()),
-                                              ),
-                                            if (_requestSource case final SeerrCatalogSource seerr when tmdbId != null)
-                                              FocusableAction(
-                                                debugLabel: 'catalog_request',
-                                                icon: Symbols.download_rounded,
-                                                tooltip: t.seerr.request,
-                                                onPressed: () => unawaited(
-                                                  showSeerrRequestSheet(
-                                                    hostContext,
-                                                    source: seerr,
-                                                    kind: item.kind,
-                                                    tmdbId: tmdbId,
-                                                    title: item.title,
+                                        ],
+                                        if (item.genres?.isNotEmpty ?? false) ...[
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            item.genres!.join(' • '),
+                                            style: theme.textTheme.bodySmall?.copyWith(
+                                              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                                            ),
+                                          ),
+                                        ],
+                                        const SizedBox(height: 16),
+                                        if (_hasActions)
+                                          FocusableActionBar(
+                                            key: _actionBarKey,
+                                            onNavigateDown: _focusSectionBelowActions,
+                                            actions: [
+                                              if (_watchlistSource != null)
+                                                FocusableAction(
+                                                  // Stable identities so the focused binding survives the
+                                                  // list-shape changes of async enrichment (watchlist/request
+                                                  // sources and trailer URL arrive at different times).
+                                                  debugLabel: 'catalog_watchlist',
+                                                  icon: onWatchlist ?? false
+                                                      ? Symbols.bookmark_added_rounded
+                                                      : Symbols.bookmark_add_rounded,
+                                                  tooltip: onWatchlist ?? false
+                                                      ? t.explore.removeFromWatchlist
+                                                      : t.explore.addToWatchlist,
+                                                  onPressed: () => unawaited(_toggleWatchlist()),
+                                                ),
+                                              if (_requestSource case final SeerrCatalogSource seerr
+                                                  when tmdbId != null)
+                                                FocusableAction(
+                                                  debugLabel: 'catalog_request',
+                                                  icon: Symbols.download_rounded,
+                                                  tooltip: t.seerr.request,
+                                                  onPressed: () => unawaited(
+                                                    showSeerrRequestSheet(
+                                                      hostContext,
+                                                      source: seerr,
+                                                      kind: item.kind,
+                                                      tmdbId: tmdbId,
+                                                      title: item.title,
+                                                    ),
                                                   ),
                                                 ),
-                                              ),
-                                            if (item.trailerUrl?.trim() case final trailer? when trailer.isNotEmpty)
-                                              FocusableAction(
-                                                debugLabel: 'catalog_trailer',
-                                                icon: Symbols.play_circle_rounded,
-                                                tooltip: t.explore.detail.watchTrailer,
-                                                onPressed: () => unawaited(_openExternalUrl(trailer)),
-                                              ),
-                                          ],
-                                        ),
-                                    ],
+                                              if (item.trailerUrl?.trim() case final trailer? when trailer.isNotEmpty)
+                                                FocusableAction(
+                                                  debugLabel: 'catalog_trailer',
+                                                  icon: Symbols.play_circle_rounded,
+                                                  tooltip: t.explore.detail.watchTrailer,
+                                                  onPressed: () => unawaited(_openExternalUrl(trailer)),
+                                                ),
+                                            ],
+                                          ),
+                                      ],
+                                    ),
                                   ),
+                                ],
+                              ),
+                              if (_buildStatsChips() case final Widget chips) ...[const SizedBox(height: 20), chips],
+                              if (item.overview?.trim() case final overview? when overview.isNotEmpty) ...[
+                                const SizedBox(height: 24),
+                                CollapsibleText(
+                                  text: overview,
+                                  maxLines: isMobile ? 6 : 4,
+                                  style: theme.textTheme.bodyLarge,
+                                  focusNode: _overviewFocusNode,
+                                  skipTraversal: false,
+                                  onNavigateUp: _hasActions ? _requestActionBarFocus : null,
+                                  onNavigateDown: _focusSectionBelowOverview,
                                 ),
                               ],
-                            ),
-                            if (_buildStatsChips() case final Widget chips) ...[const SizedBox(height: 20), chips],
-                            if (item.overview?.trim() case final overview? when overview.isNotEmpty) ...[
+                              if (item.background?.trim() case final background? when background.isNotEmpty) ...[
+                                const SizedBox(height: 24),
+                                _buildBackgroundSection(theme, background, isMobile: isMobile),
+                              ],
+                              if (_buildFactsSection(theme) case final Widget facts) ...[
+                                const SizedBox(height: 24),
+                                facts,
+                              ],
+                              if (_buildRecommendersSection(theme) case final Widget recommenders) ...[
+                                const SizedBox(height: 24),
+                                recommenders,
+                              ],
+                              if (_buildRatingsSection(theme) case final Widget ratings) ...[
+                                const SizedBox(height: 24),
+                                ratings,
+                              ],
+                              if (_buildScheduleSection(theme) case final Widget schedule) ...[
+                                const SizedBox(height: 24),
+                                schedule,
+                              ],
+                              if (_buildCrewSection(theme) case final Widget crew) ...[
+                                const SizedBox(height: 24),
+                                crew,
+                              ],
+                              if (_buildTagsSection(theme) case final Widget tags) ...[
+                                const SizedBox(height: 24),
+                                tags,
+                              ],
+                              if (_streamingLinks.isNotEmpty) ...[
+                                const SizedBox(height: 24),
+                                _buildLinksSection(theme, t.explore.detail.watchOn, _streamingLinks, 0),
+                              ],
+                              if (_otherLinks.isNotEmpty) ...[
+                                const SizedBox(height: 24),
+                                _buildLinksSection(theme, t.explore.detail.links, _otherLinks, _streamingLinks.length),
+                              ],
                               const SizedBox(height: 24),
-                              CollapsibleText(
-                                text: overview,
-                                maxLines: isMobile ? 6 : 4,
-                                style: theme.textTheme.bodyLarge,
-                                focusNode: _overviewFocusNode,
-                                skipTraversal: false,
-                                onNavigateUp: _hasActions ? _requestActionBarFocus : null,
-                                onNavigateDown: _focusSectionBelowOverview,
-                              ),
+                              _buildLibrarySection(theme),
+                              if (_cast case final List<CatalogCastMember> cast when cast.isNotEmpty) ...[
+                                const SizedBox(height: 28),
+                                _buildCastSection(theme, cast),
+                              ],
+                              if (_hasRelations) ...[const SizedBox(height: 24), _buildRelationsSection(theme)],
+                              if (_related case final List<CatalogItem> related when related.isNotEmpty) ...[
+                                const SizedBox(height: 20),
+                                _buildRelatedSection(related),
+                              ],
                             ],
-                            if (item.background?.trim() case final background? when background.isNotEmpty) ...[
-                              const SizedBox(height: 24),
-                              _buildBackgroundSection(theme, background, isMobile: isMobile),
-                            ],
-                            if (_buildFactsSection(theme) case final Widget facts) ...[
-                              const SizedBox(height: 24),
-                              facts,
-                            ],
-                            if (_buildRecommendersSection(theme) case final Widget recommenders) ...[
-                              const SizedBox(height: 24),
-                              recommenders,
-                            ],
-                            if (_buildRatingsSection(theme) case final Widget ratings) ...[
-                              const SizedBox(height: 24),
-                              ratings,
-                            ],
-                            if (_buildScheduleSection(theme) case final Widget schedule) ...[
-                              const SizedBox(height: 24),
-                              schedule,
-                            ],
-                            if (_buildCrewSection(theme) case final Widget crew) ...[const SizedBox(height: 24), crew],
-                            if (_buildTagsSection(theme) case final Widget tags) ...[const SizedBox(height: 24), tags],
-                            if (_streamingLinks.isNotEmpty) ...[
-                              const SizedBox(height: 24),
-                              _buildLinksSection(theme, t.explore.detail.watchOn, _streamingLinks, 0),
-                            ],
-                            if (_otherLinks.isNotEmpty) ...[
-                              const SizedBox(height: 24),
-                              _buildLinksSection(theme, t.explore.detail.links, _otherLinks, _streamingLinks.length),
-                            ],
-                            const SizedBox(height: 24),
-                            _buildLibrarySection(theme),
-                            if (_cast case final List<CatalogCastMember> cast when cast.isNotEmpty) ...[
-                              const SizedBox(height: 28),
-                              _buildCastSection(theme, cast),
-                            ],
-                            if (_hasRelations) ...[const SizedBox(height: 24), _buildRelationsSection(theme)],
-                            if (_related case final List<CatalogItem> related when related.isNotEmpty) ...[
-                              const SizedBox(height: 20),
-                              _buildRelatedSection(related),
-                            ],
-                          ],
+                          ),
                         ),
                       ),
                     ],

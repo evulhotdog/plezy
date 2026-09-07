@@ -50,6 +50,22 @@ class MpvPlayerPluginTest {
   }
 
   @Test
+  fun commandWithoutNativePlayerReportsFailureInsteadOfSilentSuccess() {
+    // A load that never reached mpv produces no source; answering success
+    // would leave Dart waiting on a start-file that never comes.
+    val plugin = MpvPlayerPlugin()
+    installCore(plugin, testCore(null))
+    val result = RecordingResult()
+
+    plugin.onMethodCall(MethodCall("command", mapOf("args" to listOf("loadfile", "x", "replace"))), result)
+    awaitCompletion(result)
+
+    assertEquals("COMMAND_FAILED", result.errorCode)
+    assertEquals(1, result.completionCount)
+    assertNull(result.successValue)
+  }
+
+  @Test
   fun audioSpdifCodecsWithoutContextAnswersEmptySoMpvDecodes() {
     // mpv force-passthroughs every codec named in audio-spdif with no decode fallback, so
     // with no context to inspect the audio route the only safe answer is "" (#1703, #1991).
@@ -758,15 +774,53 @@ class MpvPlayerPluginTest {
   }
 
   @Test
-  fun setLogLevelReportsUnsupported() {
+  fun setLogLevelWithoutCoreReportsNotInitializedForVideoAndAudio() {
+    for (plugin in listOf(MpvPlayerPlugin(), MpvAudioPlayerPlugin())) {
+      val result = RecordingResult()
+
+      plugin.onMethodCall(MethodCall("setLogLevel", mapOf("level" to "warn")), result)
+
+      assertEquals("NOT_INITIALIZED", result.errorCode)
+      assertEquals(1, result.completionCount)
+      assertNull(result.successValue)
+    }
+  }
+
+  @Test
+  fun setLogLevelRejectsMissingOrNonStringLevel() {
+    for (level in listOf(null, 42)) {
+      val result = RecordingResult()
+
+      MpvPlayerPlugin().onMethodCall(MethodCall("setLogLevel", mapOf("level" to level)), result)
+
+      assertEquals("INVALID_ARGS", result.errorCode)
+      assertEquals(1, result.completionCount)
+    }
+  }
+
+  @Test
+  fun disposeCompletesQueuedLogLevelChangeOnceWithoutAnActiveNativePlayer() {
+    val blockerStarted = CountDownLatch(1)
+    val releaseBlocker = CountDownLatch(1)
+    val core = testCore { _, _ ->
+      blockerStarted.countDown()
+      check(releaseBlocker.await(2, TimeUnit.SECONDS))
+    }
+    val plugin = MpvPlayerPlugin()
+    installCore(plugin, core)
     val result = RecordingResult()
+    try {
+      core.setProperty("block", "value")
+      assertTrue(blockerStarted.await(1, TimeUnit.SECONDS))
+      plugin.onMethodCall(MethodCall("setLogLevel", mapOf("level" to "v")), result)
+      core.dispose()
+    } finally {
+      releaseBlocker.countDown()
+    }
+    awaitCompletion(result)
 
-    MpvPlayerPlugin().onMethodCall(
-      MethodCall("setLogLevel", mapOf("level" to "warn")),
-      result
-    )
-
-    assertEquals("UNSUPPORTED", result.errorCode)
+    assertEquals("NOT_INITIALIZED", result.errorCode)
+    assertEquals(1, result.completionCount)
     assertNull(result.successValue)
   }
 
@@ -778,10 +832,11 @@ class MpvPlayerPluginTest {
 
     assertEquals(
       mapOf(
+        "sourceId" to 73L,
         "reason" to 4,
         "message" to "Invalid data found when processing input"
       ),
-      diagnostics.onEndFile(MpvEvent.EndFile(EndFileReason.Error))
+      diagnostics.onEndFile(MpvEvent.EndFile(EndFileReason.Error, 73L))
     )
   }
 
@@ -791,9 +846,10 @@ class MpvPlayerPluginTest {
     diagnostics.onLogMessage(LogMessage("ffmpeg", LogLevel.Error, "old failure"))
     diagnostics.onStartFile()
 
-    assertEquals(mapOf("reason" to 0), diagnostics.onEndFile(MpvEvent.EndFile(EndFileReason.Eof)))
-    assertEquals(mapOf("reason" to 4), diagnostics.onEndFile(MpvEvent.EndFile(EndFileReason.Error)))
-    assertNull(diagnostics.onEndFile(MpvEvent.EndFile(null)))
+    assertEquals(mapOf("reason" to 0), diagnostics.onEndFile(MpvEvent.EndFile(EndFileReason.Eof, null)))
+    assertEquals(mapOf("reason" to 4), diagnostics.onEndFile(MpvEvent.EndFile(EndFileReason.Error, null)))
+    assertEquals(mapOf("sourceId" to 81L), diagnostics.onEndFile(MpvEvent.EndFile(null, 81L)))
+    assertNull(diagnostics.onEndFile(MpvEvent.EndFile(null, null)))
   }
 
   @Test
@@ -805,6 +861,7 @@ class MpvPlayerPluginTest {
     plugin.onEvent(
       "end-file",
       mapOf(
+        "sourceId" to 92L,
         "reason" to 4,
         "message" to "Failed to open stream"
       )
@@ -815,11 +872,58 @@ class MpvPlayerPluginTest {
         "type" to "event",
         "name" to "end-file",
         "data" to mapOf(
+          "sourceId" to 92L,
           "reason" to 4,
           "message" to "Failed to open stream"
         )
       ),
       sink.successValue
+    )
+  }
+
+  @Test
+  fun sourceQualifiedLifecycleAndPropertiesKeepTheirDequeueIdentity() {
+    val sink = RecordingEventSink()
+    val plugin = MpvPlayerPlugin()
+    plugin.onListen(null, sink)
+    plugin.onMethodCall(
+      MethodCall(
+        "observeProperty",
+        mapOf("name" to "time-pos", "format" to "double", "id" to 7)
+      ),
+      RecordingResult()
+    )
+
+    plugin.onPropertyChange("time-pos", 0.0)
+    plugin.onEvent("start-file", mapOf("sourceId" to 202L))
+    plugin.onEvent("file-loaded", mapOf("sourceId" to 202L))
+    plugin.onPropertyChange("time-pos", 12.5, 101L)
+    plugin.onEvent(
+      "playback-restart",
+      mapOf("sourceId" to 202L, "positionSeconds" to 18.75)
+    )
+
+    assertEquals(
+      listOf(
+        listOf(7, 0.0, null),
+        mapOf(
+          "type" to "event",
+          "name" to "start-file",
+          "data" to mapOf("sourceId" to 202L)
+        ),
+        mapOf(
+          "type" to "event",
+          "name" to "file-loaded",
+          "data" to mapOf("sourceId" to 202L)
+        ),
+        listOf(7, 12.5, 101L),
+        mapOf(
+          "type" to "event",
+          "name" to "playback-restart",
+          "data" to mapOf("sourceId" to 202L, "positionSeconds" to 18.75)
+        )
+      ),
+      sink.successValues
     )
   }
 
@@ -991,6 +1095,39 @@ class MpvPlayerPluginTest {
   }
 
   @Test
+  fun hwdecWritesParkWhileAPerFileHoldIsActive() {
+    // While DV P5 reshaping or Hi10 routing holds hwdec at `no`, a session
+    // write of a hardware value must not reach mpv (it would re-enable the
+    // decoder that was just refused) but must be kept for the restore.
+    val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+    val writes = ConcurrentLinkedQueue<Pair<String, String>>()
+    val core = MpvPlayerCore(activity, audioOnly = false, propertyWriter = { name, value ->
+      writes.add(name to value)
+    })
+    setBoolean(core, "isInitialized", true)
+    setBoolean(core, "hwdecHeld", true)
+
+    var outcome: Result<Unit>? = null
+    core.setProperty("hwdec", "mediacodec,mediacodec-copy") { outcome = it }
+    awaitCondition { outcome != null }
+    assertTrue(outcome!!.isSuccess)
+    assertTrue(writes.isEmpty())
+    val parked = MpvPlayerCore::class.java.getDeclaredField("parkedHwdec").run {
+      isAccessible = true
+      @Suppress("UNCHECKED_CAST")
+      (get(core) as java.util.concurrent.atomic.AtomicReference<String?>).get()
+    }
+    assertEquals("mediacodec,mediacodec-copy", parked)
+
+    // Once the hold is gone, hwdec writes flow through again.
+    setBoolean(core, "hwdecHeld", false)
+    outcome = null
+    core.setProperty("hwdec", "no") { outcome = it }
+    awaitCondition { outcome != null }
+    assertEquals(listOf("hwdec" to "no"), writes.toList())
+  }
+
+  @Test
   fun dvConversionModeMapsOntoForkDecoderOptions() {
     // The app-level `dv-conversion-mode` property must translate to the fork
     // FFmpeg hevc_mediacodec options, mirroring the ExoPlayer DoviBridge
@@ -1101,9 +1238,11 @@ class MpvPlayerPluginTest {
 
   private class RecordingEventSink : EventChannel.EventSink {
     var successValue: Any? = null
+    val successValues = mutableListOf<Any?>()
 
     override fun success(event: Any?) {
       successValue = event
+      successValues += event
     }
 
     override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) = Unit
