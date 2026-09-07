@@ -653,11 +653,8 @@ class PlexVideoControls extends StatefulWidget {
   /// Whether playback is at the live edge
   final bool isAtLiveEdge;
 
-  /// Epoch seconds corresponding to player position 0 (for live TV)
-  final double streamStartEpoch;
-
-  /// Current playback position as absolute epoch seconds (for live TV)
-  final int? currentPositionEpoch;
+  /// Maps a player-local position to absolute epoch seconds for live TV.
+  final int Function(Duration position)? liveEpochForPosition;
 
   /// Seek callback for live TV time-shift (absolute epoch seconds; scrubber)
   final ValueChanged<int>? onLiveSeek;
@@ -747,8 +744,7 @@ class PlexVideoControls extends StatefulWidget {
     this.liveChannelName,
     this.captureBuffer,
     this.isAtLiveEdge = true,
-    this.streamStartEpoch = 0,
-    this.currentPositionEpoch,
+    this.liveEpochForPosition,
     this.onLiveSeek,
     this.onLiveSeekBy,
     this.onJumpToLive,
@@ -870,9 +866,9 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
   StreamSubscription<bool>? _completedSubscription;
   // Position subscription for marker tracking
   StreamSubscription<Duration>? _positionSubscription;
-  // Auto-skip state
-  bool get _autoSkipIntro => _settings.read(SettingsService.autoSkipIntro);
-  bool get _autoSkipCredits => _settings.read(SettingsService.autoSkipCredits);
+  // Skip-marker state
+  SkipMarkerMode _skipModeFor(MediaMarker marker) =>
+      _settings.read(marker.isCredits ? SettingsService.skipCreditsMode : SettingsService.skipIntroMode);
   int get _autoSkipDelay => _settings.read(SettingsService.autoSkipDelay);
   Timer? _autoSkipTimer;
   final ValueNotifier<double> _autoSkipProgress = ValueNotifier<double>(0.0);
@@ -973,8 +969,8 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
       SettingsService.scopedPlayerPrefValues,
       SettingsService.syncOffsetScope,
       SettingsService.rotationLocked,
-      SettingsService.autoSkipIntro,
-      SettingsService.autoSkipCredits,
+      SettingsService.skipIntroMode,
+      SettingsService.skipCreditsMode,
       SettingsService.autoSkipDelay,
       SettingsService.videoPlayerNavigationEnabled,
       SettingsService.showPerformanceOverlay,
@@ -982,6 +978,10 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
       SettingsService.clickVideoTogglesPlayback,
       SettingsService.showChapterMarkersOnTimeline,
     ]);
+    // A marker kind switched Off while inside one of its markers must drop the
+    // prompt now, not on the next position tick (paused playback never ticks).
+    bindEffect(SettingsService.skipIntroMode, (_) => _syncCurrentMarkerForCurrentPosition(), fireImmediately: false);
+    bindEffect(SettingsService.skipCreditsMode, (_) => _syncCurrentMarkerForCurrentPosition(), fireImmediately: false);
     widget.chromeController.addListener(_onChromeChanged);
     _configureChromeController();
     widget.chromeController.setPlaying(widget.player.state.playing);
@@ -1216,10 +1216,11 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
     // reclaim re-tests `hasFocus` when it runs, so once the surface holds the
     // remote the two no longer compete.
     if (!mounted || _focusNode.hasFocus) return;
-    // A route pushed above the player still leaves these controls mounted —
-    // on this navigator or an ancestor one (root-navigator dialogs/picker);
-    // re-activating the window must not pull the remote off the top route.
-    if (!isRouteChainCurrent(context)) return;
+    // A route pushed above the player on this navigator still leaves these
+    // controls mounted; re-activating the window must not pull the remote off
+    // the top route. (A root-navigator cover is handled for the whole session
+    // by CoveredRouteFocusBoundary, which makes the claim a no-op.)
+    if (ModalRoute.of(context)?.isCurrent != true) return;
     _claimPlayerSurfaceFocus();
   }
 
@@ -1396,7 +1397,7 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
                                                       liveChannelName: widget.liveChannelName,
                                                       captureBuffer: widget.captureBuffer,
                                                       isAtLiveEdge: widget.isAtLiveEdge,
-                                                      streamStartEpoch: widget.streamStartEpoch,
+                                                      liveEpochForPosition: widget.liveEpochForPosition,
                                                       onLiveSeek: _liveSeekAbandoningBurst(widget.onLiveSeek),
                                                       serverId: widget.metadata.serverId,
                                                       showQueueTab: canShowQueue,

@@ -169,6 +169,8 @@
     "alwaysKeepSidebarOpenDescription": "Sidofältet förblir utfällt och innehållsytan anpassas efter det",
     "showUnwatchedCount": "Visa antal osedda",
     "showUnwatchedCountDescription": "Visa antal osedda avsnitt för serier och säsonger",
+    "showWatchedIndicators": "",
+    "showWatchedIndicatorsDescription": "",
     "showEpisodeNumberOnCards": "Visa avsnittsnummer på kort",
     "showEpisodeNumberOnCardsDescription": "Visa säsongs- och avsnittsnummer på avsnittskort",
     "showSeasonPostersOnTabs": "Visa säsongsaffischer på flikar",
@@ -277,10 +279,17 @@
     "autoPlayNextEpisodeDescription": "Starta nästa avsnitt automatiskt när det aktuella avsnittet slutar",
     "playNextCountdown": "Nedräkning för nästa avsnitt",
     "playNextCountdownImmediate": "Spela direkt",
-    "autoSkipIntro": "Hoppa över intro automatiskt",
-    "autoSkipIntroDescription": "Hoppa automatiskt över intromarkörer efter några sekunder",
-    "autoSkipCredits": "Hoppa över eftertexter automatiskt",
-    "autoSkipCreditsDescription": "Hoppa automatiskt över eftertexterna och spela nästa avsnitt",
+    "skipIntroMode": "",
+    "skipIntroModeOffDescription": "",
+    "skipIntroModeButtonDescription": "",
+    "skipIntroModeAutoDescription": "",
+    "skipCreditsMode": "",
+    "skipCreditsModeOffDescription": "",
+    "skipCreditsModeButtonDescription": "",
+    "skipCreditsModeAutoDescription": "",
+    "skipMarkerModeOff": "",
+    "skipMarkerModeButton": "",
+    "skipMarkerModeAuto": "",
     "forceSkipMarkerFallback": "Tvinga reservmarkörer",
     "forceSkipMarkerFallbackDescription": "Använd mönster i kapiteltitlar även när Plex har markörer",
     "autoSkipDelay": "Fördröjning före automatiskt hopp",
@@ -774,6 +783,7 @@
     "playbackDataInvalid": "Servern returnerade ogiltig uppspelningsinformation.",
     "playbackCancelled": "Uppspelningen avbröts.",
     "playbackFailed": "Det gick inte att starta uppspelningen.",
+    "mediaUnavailable": "",
     "errorLoadingFileInfo": "Fel vid laddning av filinformation: ${error}",
     "errorLoadingSeries": "Fel vid laddning av serie",
     "musicNotSupported": "Musikuppspelning stöds inte ännu",
@@ -859,6 +869,9 @@
     "presetDeleted": "Förval borttaget",
     "confirmDeletePreset": "Är du säker på att du vill ta bort detta förval?",
     "configPlaceholder": "gpu-api=vulkan\nhwdec=auto\n# comment",
+    "lineHint": "",
+    "addLine": "",
+    "removeLine": "",
     "embeddedVoHint": "vo, gpu-context och gpu-api ignoreras på Linux: inbäddad video renderas alltid via vo=libmpv på videoplanet, och gpu-next (som compute-shaders som ArtCNN behöver) kan inte köras inbäddat."
   },
   "dialog": {
@@ -1255,6 +1268,10 @@
     "notInLibrary": "Finns inte i ditt bibliotek",
     "inTheseLibraries": "I dessa bibliotek",
     "checkingLibrary": "Kontrollerar ditt bibliotek...",
+    "libraryCheckFailed": {
+      "one": "",
+      "other": ""
+    },
     "emptyTitle": "Inget här ännu",
     "emptyMessage": "Rader från ${source} visas här när de har innehåll.",
     "searchHint": "Sök i ${source}",
@@ -1648,7 +1665,8 @@
       "timedOut": "Reläservern svarade inte i tid",
       "connectionLost": "Anslutningen stängdes innan sessionen var klar",
       "invalidRelayResponse": "Reläservern skickade ett oväntat svar",
-      "sessionEnded": "Värden avslutade sessionen"
+      "sessionEnded": "Värden avslutade sessionen",
+      "sessionUnavailable": ""
     }
   },
   "downloads": {
@@ -2079,6 +2097,10 @@
     "qualityProfile": "Kvalitetsprofil",
     "rootFolder": "Rotmapp",
     "languageProfile": "Språkprofil",
+    "tags": "",
+    "noTags": "",
+    "defaultOption": "",
+    "animeNote": "",
     "requestSubmitted": "Begäran skickad",
     "requestFailed": "Begäran kunde inte genomföras: ${error}",
     "requestsLoadFailed": "Det gick inte att läsa in alternativ för begäran",
@@ -2090,6 +2112,7 @@
     "statusBlocklisted": "På blockeringslistan",
     "couldNotReach": "Kunde inte nå ${url}: ${error}",
     "noInstanceAtUrl": "Det finns ingen Seerr-instans på ${url} (HTTP ${status})",
+    "behindAuthProxy": "",
     "invalidUrl": "Ange en serveradress, t.ex. https://seerr.example.com",
     "quickConnectUnsupported": "Den här Seerr-instansen stöder inte Quick Connect. Den kräver Seerr 3.4 eller nyare.",
     "notInitialized": "Den här Seerr-instansen har inte slutfört den inledande konfigurationen",
@@ -2099,7 +2122,9 @@
     "noSessionCookie": "Seerr skapade ingen sessionscookie",
     "freshCookieRejected": "Seerr avvisade den nya sessionscookien",
     "noUserInformation": "Seerr returnerade ingen användarinformation",
-    "sessionRejectedAfterReauth": "Sessionen avvisades efter den nya inloggningen"
+    "sessionRejectedAfterReauth": "Sessionen avvisades efter den nya inloggningen",
+    "permissionDenied": "",
+    "permissionRevoked": ""
   },
   "services": {
     "title": "Tjänster",

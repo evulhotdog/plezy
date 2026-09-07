@@ -169,6 +169,8 @@
     "alwaysKeepSidebarOpenDescription": "A barra lateral fica expandida e a área de conteúdo se ajusta",
     "showUnwatchedCount": "Mostrar Contagem de Não Assistidos",
     "showUnwatchedCountDescription": "Exibir contagem de episódios não assistidos em séries e temporadas",
+    "showWatchedIndicators": "",
+    "showWatchedIndicatorsDescription": "",
     "showEpisodeNumberOnCards": "Mostrar Número do Episódio nos Cards",
     "showEpisodeNumberOnCardsDescription": "Mostrar temporada e episódio nos cartões de episódio",
     "showSeasonPostersOnTabs": "Mostrar Pôsteres de Temporada nas Abas",
@@ -277,10 +279,17 @@
     "autoPlayNextEpisodeDescription": "Iniciar o próximo episódio automaticamente quando um terminar",
     "playNextCountdown": "Contagem regressiva do próximo episódio",
     "playNextCountdownImmediate": "Reproduzir imediatamente",
-    "autoSkipIntro": "Pular introdução automaticamente",
-    "autoSkipIntroDescription": "Pular marcadores de introdução automaticamente após alguns segundos",
-    "autoSkipCredits": "Pular créditos automaticamente",
-    "autoSkipCreditsDescription": "Pular os créditos automaticamente e reproduzir o próximo episódio",
+    "skipIntroMode": "",
+    "skipIntroModeOffDescription": "",
+    "skipIntroModeButtonDescription": "",
+    "skipIntroModeAutoDescription": "",
+    "skipCreditsMode": "",
+    "skipCreditsModeOffDescription": "",
+    "skipCreditsModeButtonDescription": "",
+    "skipCreditsModeAutoDescription": "",
+    "skipMarkerModeOff": "",
+    "skipMarkerModeButton": "",
+    "skipMarkerModeAuto": "",
     "forceSkipMarkerFallback": "Forçar marcadores alternativos",
     "forceSkipMarkerFallbackDescription": "Usar padrões de títulos de capítulos mesmo quando o Plex tiver marcadores",
     "autoSkipDelay": "Atraso para pular automaticamente",
@@ -774,6 +783,7 @@
     "playbackDataInvalid": "O servidor retornou informações de reprodução inválidas.",
     "playbackCancelled": "A reprodução foi cancelada.",
     "playbackFailed": "Não foi possível iniciar a reprodução.",
+    "mediaUnavailable": "",
     "errorLoadingFileInfo": "Erro ao carregar as informações do arquivo: ${error}",
     "errorLoadingSeries": "Erro ao carregar série",
     "musicNotSupported": "A reprodução de música ainda não é compatível",
@@ -859,6 +869,9 @@
     "presetDeleted": "Predefinição excluída",
     "confirmDeletePreset": "Tem certeza de que deseja excluir esta predefinição?",
     "configPlaceholder": "gpu-api=vulkan\nhwdec=auto\n# comment",
+    "lineHint": "",
+    "addLine": "",
+    "removeLine": "",
     "embeddedVoHint": "vo, gpu-context e gpu-api são ignorados no Linux: o vídeo incorporado é sempre renderizado via vo=libmpv no plano de vídeo, e gpu-next (necessário para shaders de computação como ArtCNN) não pode ser executado incorporado."
   },
   "dialog": {
@@ -1255,6 +1268,10 @@
     "notInLibrary": "Não está na sua biblioteca",
     "inTheseLibraries": "Nestas bibliotecas",
     "checkingLibrary": "Verificando sua biblioteca...",
+    "libraryCheckFailed": {
+      "one": "",
+      "other": ""
+    },
     "emptyTitle": "Ainda não há nada aqui",
     "emptyMessage": "As linhas de ${source} aparecerão aqui quando tiverem conteúdo.",
     "searchHint": "Buscar em ${source}",
@@ -1648,7 +1665,8 @@
       "timedOut": "O servidor de retransmissão não respondeu a tempo",
       "connectionLost": "A conexão foi encerrada antes de a sessão ficar pronta",
       "invalidRelayResponse": "O servidor de retransmissão enviou uma resposta inesperada",
-      "sessionEnded": "O anfitrião encerrou a sessão"
+      "sessionEnded": "O anfitrião encerrou a sessão",
+      "sessionUnavailable": ""
     }
   },
   "downloads": {
@@ -2079,6 +2097,10 @@
     "qualityProfile": "Perfil de qualidade",
     "rootFolder": "Pasta raiz",
     "languageProfile": "Perfil de idioma",
+    "tags": "",
+    "noTags": "",
+    "defaultOption": "",
+    "animeNote": "",
     "requestSubmitted": "Solicitação enviada",
     "requestFailed": "Falha na solicitação: ${error}",
     "requestsLoadFailed": "Não foi possível carregar as opções de solicitação",
@@ -2090,6 +2112,7 @@
     "statusBlocklisted": "Na lista de bloqueio",
     "couldNotReach": "Não foi possível acessar ${url}: ${error}",
     "noInstanceAtUrl": "Nenhuma instância do Seerr em ${url} (HTTP ${status})",
+    "behindAuthProxy": "",
     "invalidUrl": "Insira um endereço de servidor como https://seerr.example.com",
     "quickConnectUnsupported": "Esta instância do Seerr não oferece suporte a Quick Connect. Ela precisa do Seerr 3.4 ou mais recente.",
     "notInitialized": "Esta instância do Seerr não concluiu a configuração inicial",
@@ -2099,7 +2122,9 @@
     "noSessionCookie": "O Seerr não forneceu um cookie de sessão",
     "freshCookieRejected": "O Seerr rejeitou o novo cookie de sessão",
     "noUserInformation": "O Seerr não retornou informações do usuário",
-    "sessionRejectedAfterReauth": "A sessão foi rejeitada após entrar novamente"
+    "sessionRejectedAfterReauth": "A sessão foi rejeitada após entrar novamente",
+    "permissionDenied": "",
+    "permissionRevoked": ""
   },
   "services": {
     "title": "Serviços",

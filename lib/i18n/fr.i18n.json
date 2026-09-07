@@ -169,6 +169,8 @@
     "alwaysKeepSidebarOpenDescription": "La barre latérale reste étendue et la zone de contenu s'adapte",
     "showUnwatchedCount": "Afficher le nombre d’éléments non vus",
     "showUnwatchedCountDescription": "Afficher le nombre d’épisodes non vus pour les séries et les saisons",
+    "showWatchedIndicators": "",
+    "showWatchedIndicatorsDescription": "",
     "showEpisodeNumberOnCards": "Afficher le numéro de l’épisode sur les cartes",
     "showEpisodeNumberOnCardsDescription": "Afficher les numéros de saison et d’épisode sur les cartes d’épisode",
     "showSeasonPostersOnTabs": "Afficher les affiches de saison sur les onglets",
@@ -277,10 +279,17 @@
     "autoPlayNextEpisodeDescription": "Lancer automatiquement l'épisode suivant lorsqu'un épisode se termine",
     "playNextCountdown": "Compte à rebours avant l'épisode suivant",
     "playNextCountdownImmediate": "Lire immédiatement",
-    "autoSkipIntro": "Passer automatiquement l’introduction",
-    "autoSkipIntroDescription": "Passer automatiquement les marqueurs d’introduction après quelques secondes",
-    "autoSkipCredits": "Passer automatiquement le générique",
-    "autoSkipCreditsDescription": "Passer automatiquement le générique et lire l’épisode suivant",
+    "skipIntroMode": "",
+    "skipIntroModeOffDescription": "",
+    "skipIntroModeButtonDescription": "",
+    "skipIntroModeAutoDescription": "",
+    "skipCreditsMode": "",
+    "skipCreditsModeOffDescription": "",
+    "skipCreditsModeButtonDescription": "",
+    "skipCreditsModeAutoDescription": "",
+    "skipMarkerModeOff": "",
+    "skipMarkerModeButton": "",
+    "skipMarkerModeAuto": "",
     "forceSkipMarkerFallback": "Forcer les marqueurs de secours",
     "forceSkipMarkerFallbackDescription": "Utiliser les motifs des titres de chapitre même lorsque Plex fournit des marqueurs",
     "autoSkipDelay": "Délai avant le saut automatique",
@@ -774,6 +783,7 @@
     "playbackDataInvalid": "Le serveur a renvoyé des informations de lecture non valides.",
     "playbackCancelled": "La lecture a été annulée.",
     "playbackFailed": "Impossible de démarrer la lecture.",
+    "mediaUnavailable": "",
     "errorLoadingFileInfo": "Erreur lors du chargement des informations sur le fichier : ${error}",
     "errorLoadingSeries": "Erreur lors du chargement de la série",
     "musicNotSupported": "La lecture de musique n'est pas encore prise en charge",
@@ -859,6 +869,9 @@
     "presetDeleted": "Préréglage supprimé",
     "confirmDeletePreset": "Êtes-vous sûr de vouloir supprimer ce préréglage ?",
     "configPlaceholder": "gpu-api=vulkan\nhwdec=auto\n# comment",
+    "lineHint": "",
+    "addLine": "",
+    "removeLine": "",
     "embeddedVoHint": "vo, gpu-context et gpu-api sont ignorés sous Linux : la vidéo intégrée est toujours rendue via vo=libmpv sur le plan vidéo, et gpu-next (dont les shaders de calcul comme ArtCNN ont besoin) ne peut pas fonctionner en mode intégré."
   },
   "dialog": {
@@ -1255,6 +1268,10 @@
     "notInLibrary": "Absent de votre bibliothèque",
     "inTheseLibraries": "Dans ces bibliothèques",
     "checkingLibrary": "Vérification de votre bibliothèque...",
+    "libraryCheckFailed": {
+      "one": "",
+      "other": ""
+    },
     "emptyTitle": "Rien ici pour l'instant",
     "emptyMessage": "Les lignes de ${source} apparaîtront ici dès qu’elles contiendront des éléments.",
     "searchHint": "Rechercher dans ${source}",
@@ -1648,7 +1665,8 @@
       "timedOut": "Le serveur relais n’a pas répondu à temps",
       "connectionLost": "La connexion s’est fermée avant que la session ne soit prête",
       "invalidRelayResponse": "Le serveur relais a renvoyé une réponse inattendue",
-      "sessionEnded": "L’hôte a mis fin à la session"
+      "sessionEnded": "L’hôte a mis fin à la session",
+      "sessionUnavailable": ""
     }
   },
   "downloads": {
@@ -2079,6 +2097,10 @@
     "qualityProfile": "Profil de qualité",
     "rootFolder": "Dossier racine",
     "languageProfile": "Profil de langue",
+    "tags": "",
+    "noTags": "",
+    "defaultOption": "",
+    "animeNote": "",
     "requestSubmitted": "Demande envoyée",
     "requestFailed": "Échec de la demande : ${error}",
     "requestsLoadFailed": "Impossible de charger les options de demande",
@@ -2090,6 +2112,7 @@
     "statusBlocklisted": "Sur la liste de blocage",
     "couldNotReach": "Impossible de joindre ${url} : ${error}",
     "noInstanceAtUrl": "Aucune instance Seerr à l’adresse ${url} (HTTP ${status})",
+    "behindAuthProxy": "",
     "invalidUrl": "Saisissez une adresse de serveur comme https://seerr.example.com",
     "quickConnectUnsupported": "Cette instance Seerr ne prend pas en charge Quick Connect. Elle nécessite Seerr 3.4 ou version ultérieure.",
     "notInitialized": "La configuration initiale de cette instance Seerr n’est pas terminée",
@@ -2099,7 +2122,9 @@
     "noSessionCookie": "Seerr n’a pas fourni de cookie de session",
     "freshCookieRejected": "Seerr a refusé le nouveau cookie de session",
     "noUserInformation": "Seerr n’a renvoyé aucune information sur l’utilisateur",
-    "sessionRejectedAfterReauth": "La session a été refusée après la reconnexion"
+    "sessionRejectedAfterReauth": "La session a été refusée après la reconnexion",
+    "permissionDenied": "",
+    "permissionRevoked": ""
   },
   "services": {
     "title": "Services",

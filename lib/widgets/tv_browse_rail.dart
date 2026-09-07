@@ -129,13 +129,17 @@ class TvBrowseRailLayout {
     required EpisodePosterMode episodePosterMode,
     required double scale,
     bool fullCardLayout = false,
+    GridSpacing gridSpacing = GridSpacing.tight,
     double tallPosterScale = 1.0,
     double widePosterScale = 1.0,
     bool hasLeading = false,
   }) {
     final focusExtra = FocusTheme.focusBorderWidth * 2 * scale;
     final railEdgePadding = focusExtra + (12 * scale);
-    final itemGap = fullCardLayout ? fullCardItemGapForScale(scale) : 0.0;
+    // Full-card rails keep their own scale-derived gutter, like full-bleed
+    // grids; every other rail follows the user's grid-spacing setting, scaled
+    // with the rest of the rail metrics (#2226).
+    final itemGap = fullCardLayout ? fullCardItemGapForScale(scale) : gridSpacing.gridGap * scale;
     final isPersonHub = TvBrowseRailLayout.isPersonHub(hub);
     final emptyEpisodeThumbnailHub =
         hub.items.isEmpty && hub.type == 'episode' && episodePosterMode == EpisodePosterMode.episodeThumbnail;
@@ -192,6 +196,7 @@ class TvBrowseRailLayout {
     double Function(MediaHub hub)? widePosterScaleForHub,
     required double scale,
     bool fullCardLayout = false,
+    GridSpacing gridSpacing = GridSpacing.tight,
     double tallPosterScale = 1.0,
     double widePosterScale = 1.0,
   }) {
@@ -204,6 +209,7 @@ class TvBrowseRailLayout {
         episodePosterMode: episodePosterModeForHub?.call(hub) ?? episodePosterMode,
         scale: scale,
         fullCardLayout: fullCardLayout,
+        gridSpacing: gridSpacing,
         tallPosterScale: tallPosterScale,
         widePosterScale: widePosterScaleForHub?.call(hub) ?? widePosterScale,
       );
@@ -266,6 +272,7 @@ class TvBrowseRailLayout {
     EpisodePosterMode Function(MediaHub hub)? episodePosterModeForHub,
     double Function(MediaHub hub)? widePosterScaleForHub,
     bool fullCardLayout = false,
+    GridSpacing gridSpacing = GridSpacing.tight,
     double tallPosterScale = 1.0,
     double widePosterScale = 1.0,
   }) {
@@ -284,6 +291,7 @@ class TvBrowseRailLayout {
       widePosterScaleForHub: widePosterScaleForHub,
       scale: scale,
       fullCardLayout: fullCardLayout,
+      gridSpacing: gridSpacing,
       tallPosterScale: tallPosterScale,
       widePosterScale: widePosterScale,
     );
@@ -342,6 +350,11 @@ class TvBrowseRail extends StatefulWidget {
   final EpisodePosterMode Function(MediaHub hub)? episodePosterModeForHub;
   final double Function(MediaHub hub)? widePosterScaleForHub;
 
+  /// Hubs whose episode cards belong to the show this rail sits under, so
+  /// cards headline the episode title instead of the show name
+  /// ([MediaCard.showTitleImplied]).
+  final bool Function(MediaHub hub)? showTitleImpliedForHub;
+
   /// Explicit background bleed override. When null, the bleed target is read
   /// from [MainScreenFocusScope] (offset aspect) inside the bleed widget
   /// itself, so sidebar flips never rebuild the rail — only the bleed layer.
@@ -375,6 +388,7 @@ class TvBrowseRail extends StatefulWidget {
     this.autofocus = false,
     this.episodePosterModeForHub,
     this.widePosterScaleForHub,
+    this.showTitleImpliedForHub,
     this.backgroundBleedLeft,
   });
 
@@ -383,12 +397,12 @@ class TvBrowseRail extends StatefulWidget {
 }
 
 class TvBrowseRailState extends State<TvBrowseRail> with TickerProviderStateMixin {
-  // Native tvOS focus-engine scroll settles over ~450-900ms of ease-out
-  // (FocusProbe capture, issue #2006). Successive steps — including
-  // hold-repeats — retarget the animation, so a sustained drag trails the
-  // focused index slightly and catches up in one continuous glide on
-  // release, exactly like the native engine's scrollable containers.
-  static const _navigationScrollDuration = Duration(milliseconds: 500);
+  // Per-step scroll glide; platform-specific, see
+  // FocusTheme.navigationScrollDuration. Successive steps — including
+  // hold-repeats — retarget the animation from the row's current offset, so a
+  // sustained drag trails the focused index slightly and catches up in one
+  // continuous glide on release.
+  static Duration get _navigationScrollDuration => FocusTheme.navigationScrollDuration();
   static const _scrollCatchUpViewportDistance = 2.5;
   // Equivalent to the former whole-rail Opacity(0.6) without keeping a
   // full-viewport saveLayer alive.
@@ -776,7 +790,7 @@ class TvBrowseRailState extends State<TvBrowseRail> with TickerProviderStateMixi
     return KeyEventResult.ignored;
   }
 
-  void _moveItem(int delta, {Duration duration = _navigationScrollDuration}) {
+  void _moveItem(int delta) {
     final hub = _activeHub;
     if (hub == null) return;
     _hasUserInteracted = true;
@@ -791,7 +805,7 @@ class TvBrowseRailState extends State<TvBrowseRail> with TickerProviderStateMixi
     _focusModel.set(_hubIndex, _itemIndex);
     _rememberFocus(hub);
     _notifyFocusedItem();
-    _scrollToItem(duration: duration);
+    _scrollToItem();
   }
 
   void _moveHub(int delta) {
@@ -823,27 +837,35 @@ class TvBrowseRailState extends State<TvBrowseRail> with TickerProviderStateMixi
     _notifyFocusedItem();
     _notifyActiveHubChanged();
     _scrollToItemAfterLayout(animate: false);
-    _scrollActiveHubToTop();
+    // Section offsets are computed at build, so a laid-out list can start the
+    // vertical glide in this frame instead of one frame later.
+    if (!_alignActiveHubToTop(animate: true)) _scrollActiveHubToTop();
+  }
+
+  /// Scrolls the vertical list so the active hub sits at the top, using the
+  /// build-time section offsets. Returns false when the list has no client yet
+  /// or the offsets do not cover [_hubIndex]; callers then fall back to the
+  /// section key path in [_scrollActiveHubToTop].
+  bool _alignActiveHubToTop({required bool animate}) {
+    if (!_verticalController.hasClients || _hubIndex < 0 || _hubIndex >= _sectionOffsets.length) return false;
+    final target = _sectionOffsets[_hubIndex].clamp(0.0, _sectionMaxScrollExtent).toDouble();
+    if (animate) {
+      _startVerticalScrollAnimation(
+        () => _verticalController.animateTo(target, duration: _navigationScrollDuration, curve: Curves.easeOutCubic),
+      );
+    } else {
+      _verticalScrollGeneration++;
+      _focusModel.verticalScrollActive = false;
+      _verticalScrollSnapshotController.allowSnapshotting = false;
+      _verticalController.jumpTo(target);
+    }
+    return true;
   }
 
   void _scrollActiveHubToTop({bool animate = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (_verticalController.hasClients && _hubIndex >= 0 && _hubIndex < _sectionOffsets.length) {
-        final target = _sectionOffsets[_hubIndex].clamp(0.0, _sectionMaxScrollExtent).toDouble();
-        if (animate) {
-          _startVerticalScrollAnimation(
-            () =>
-                _verticalController.animateTo(target, duration: _navigationScrollDuration, curve: Curves.easeOutCubic),
-          );
-        } else {
-          _verticalScrollGeneration++;
-          _focusModel.verticalScrollActive = false;
-          _verticalScrollSnapshotController.allowSnapshotting = false;
-          _verticalController.jumpTo(target);
-        }
-        return;
-      }
+      if (_alignActiveHubToTop(animate: animate)) return;
 
       final key = _hubSectionKeys[_hubIndex];
       final context = key?.currentContext;
@@ -930,7 +952,7 @@ class TvBrowseRailState extends State<TvBrowseRail> with TickerProviderStateMixi
     widget.focusMemory.setForHub(_hubKey(hub), _itemIndex);
   }
 
-  void _scrollToItem({bool animate = true, Duration duration = _navigationScrollDuration}) {
+  void _scrollToItem({bool animate = true}) {
     final hub = _activeHub;
     if (hub == null) return;
     final controller = _scrollControllers[_hubKey(hub)];
@@ -953,10 +975,10 @@ class TvBrowseRailState extends State<TvBrowseRail> with TickerProviderStateMixi
 
     final distance = (position.pixels - target).abs();
     if (distance < 0.5) return;
-    if (!animate || duration == Duration.zero || distance > viewportWidth * _scrollCatchUpViewportDistance) {
+    if (!animate || distance > viewportWidth * _scrollCatchUpViewportDistance) {
       position.jumpTo(target);
     } else {
-      unawaited(position.animateTo(target, duration: duration, curve: Curves.easeOutCubic));
+      unawaited(position.animateTo(target, duration: _navigationScrollDuration, curve: Curves.easeOutCubic));
     }
   }
 
@@ -1108,6 +1130,7 @@ class TvBrowseRailState extends State<TvBrowseRail> with TickerProviderStateMixi
         SettingsService.libraryDensity,
         SettingsService.episodePosterMode,
         SettingsService.tvFullCardLayout,
+        SettingsService.gridSpacing,
       ],
       builder: (context) => LayoutBuilder(
         builder: (context, constraints) {
@@ -1124,6 +1147,7 @@ class TvBrowseRailState extends State<TvBrowseRail> with TickerProviderStateMixi
           final density = svc.read(SettingsService.libraryDensity);
           final episodePosterMode = svc.read(SettingsService.episodePosterMode);
           final fullCardLayout = svc.read(SettingsService.tvFullCardLayout);
+          final gridSpacing = svc.read(SettingsService.gridSpacing);
           final modes = [for (final hub in widget.hubs) widget.episodePosterModeForHub?.call(hub) ?? episodePosterMode];
           final wideScales = [
             for (final hub in widget.hubs) widget.widePosterScaleForHub?.call(hub) ?? widget.widePosterScale,
@@ -1137,6 +1161,7 @@ class TvBrowseRailState extends State<TvBrowseRail> with TickerProviderStateMixi
                 episodePosterMode: modes[i],
                 scale: scale,
                 fullCardLayout: fullCardLayout,
+                gridSpacing: gridSpacing,
                 tallPosterScale: widget.tallPosterScale,
                 widePosterScale: wideScales[i],
                 hasLeading: _hasLeadingFor(widget.hubs[i]),
@@ -1699,6 +1724,7 @@ class TvBrowseRailState extends State<TvBrowseRail> with TickerProviderStateMixi
             usesContinueWatchingAction: _usesContinueWatchingAction(hub),
             mixedHubContext: metrics.isMixedHub,
             episodePosterModeOverride: episodePosterMode,
+            showTitleImplied: widget.showTitleImpliedForHub?.call(hub) ?? false,
           );
   }
 

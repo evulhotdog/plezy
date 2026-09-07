@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 
 import '../../media/media_display_criteria.dart';
+import '../../services/settings_service.dart';
 import '../../utils/app_logger.dart';
 import '../models.dart';
 import 'audio_rendering_mode.dart';
@@ -238,6 +239,8 @@ class PlayerNative extends PlayerBase {
   // to dispose-and-recreate the in-flight core, hanging playback (#930).
   Future<void>? _initFuture;
   Future<void> _audioStateTail = Future<void>.value();
+  String _requestedLogLevel = 'warn';
+  Future<void> _logLevelTail = Future<void>.value();
   Future<void>? _disposeFuture;
   bool _disposing = false;
 
@@ -259,11 +262,19 @@ class PlayerNative extends PlayerBase {
   Future<void> _doInitialize() async {
     try {
       // The video core carries the session's decode intent so Android can
-      // choose its vo before mpv_initialize. `instanceId` names this Dart
-      // instance so a later `dispose` that lost the ownership race is
-      // provably stale; handlers that predate either argument ignore them.
+      // choose its vo before mpv_initialize, and the subtitle "Render
+      // Resolution" fraction for its vo=mediacodec OSD plane (the same knob the
+      // ExoPlayer overlay honors; other platforms size the OSD themselves).
+      // `instanceId` names this Dart instance so a later `dispose` that lost
+      // the ownership race is provably stale; handlers that predate any of
+      // these arguments ignore them.
       final result = await invoke<Object>('initialize', {
         if (!audioOnly) 'hardwareDecoding': _hardwareDecoding,
+        if (!audioOnly && Platform.isAndroid)
+          'subtitleRenderScale': SettingsService.instance
+              .read(SettingsService.subtitleRenderResolution)
+              .androidRenderScale,
+        if (Platform.isAndroid) 'logLevel': _requestedLogLevel,
         'instanceId': nativeInstanceId,
       });
       if (result != true) {
@@ -274,31 +285,38 @@ class PlayerNative extends PlayerBase {
       // Subscribe to MPV properties before flipping `initialized` so partial
       // failures don't leave us in a half-initialized state that the memoized
       // future would falsely treat as ready.
-      await observeCoreProperties(trackListFormat: _nodeFormat);
-      await observeProperty('secondary-sid', 'string');
-      await observeProperty('demuxer-cache-state', _nodeFormat);
-      await observeProperty('audio-device-list', _nodeFormat);
-      await observeProperty('audio-device', 'string');
-
       if (audioOnly) {
-        // Debug aid only: raw playlist positions in the log trail. Gapless
-        // advance DETECTION rides the file-loaded event instead — see
-        // _handleAudioFileLoaded for why property edges are unreliable.
+        // Only what the music service consumes (position/duration/playing/
+        // completed). Every observation costs an initial notification plus a
+        // channel event per edge; the video set's track-list,
+        // demuxer-cache-state, and audio-device-list decode structured nodes
+        // into models nobody on the music path reads.
+        await observeProperty('time-pos', 'double');
+        await observeProperty('duration', 'double');
+        await observeProperty('pause', 'flag');
+        await observeProperty('eof-reached', 'flag');
+        // Debug aid plus the freeze point for the outgoing track's final
+        // position (see handlePropertyChange). Gapless advance DETECTION
+        // rides the file-loaded event instead — see _handleAudioFileLoaded
+        // for why property edges are unreliable.
         await observeProperty('playlist-pos', _nodeFormat);
-        // The Apple audio core sets this at context init; set it defensively
-        // here so every mpv audio backend behaves identically. Direct invoke —
-        // setProperty() would await _ensureInitialized and deadlock on the
-        // memoized future of this very _doInitialize call.
-        await invoke('setProperty', {'name': 'gapless-audio', 'value': 'weak'});
         // ao_audiounit requests mixWithOthers unless audio-exclusive is set,
         // and a mixable session disqualifies the app from iOS Now Playing —
         // no lock-screen/headphone controls (#1921). Same contract as the
         // video path (VideoPlayerScreen sets it at playback start). iOS-only:
         // elsewhere audio-exclusive means exclusive device access (hog-mode
-        // CoreAudio on macOS, exclusive WASAPI on Windows).
+        // CoreAudio on macOS, exclusive WASAPI on Windows). Direct invoke —
+        // setProperty() would await _ensureInitialized and deadlock on the
+        // memoized future of this very _doInitialize call.
         if (Platform.isIOS) {
           await invoke('setProperty', {'name': 'audio-exclusive', 'value': 'yes'});
         }
+      } else {
+        await observeCoreProperties(trackListFormat: _nodeFormat);
+        await observeProperty('secondary-sid', 'string');
+        await observeProperty('demuxer-cache-state', _nodeFormat);
+        await observeProperty('audio-device-list', _nodeFormat);
+        await observeProperty('audio-device', 'string');
       }
 
       if (_nativeCoreUnavailable) throw StateError('Player was disposed during initialization');
@@ -352,17 +370,25 @@ class PlayerNative extends PlayerBase {
     return ('fdclose://$fd', fd);
   }
 
+  /// Opens [media] and resolves with the id of the mpv playlist entry the
+  /// `loadfile` created — the `sourceId` that entry's `start-file`,
+  /// `playback-restart` and `end-file` events carry — or null when the load
+  /// never reached mpv (core unavailable) or the core did not report one.
+  ///
+  /// Method-channel contract: the `command` reply for `loadfile` is
+  /// `{'playlistEntryId': int}` on every native core; every other command
+  /// replies null.
   @override
-  Future<void> open(
+  Future<int?> open(
     Media media, {
     bool play = true,
     bool isLive = false,
     List<SubtitleTrack>? externalSubtitles,
     Duration? timelineDuration,
   }) async {
-    if (_nativeCoreUnavailable) return;
+    if (_nativeCoreUnavailable) return null;
     await _ensureInitialized();
-    if (_nativeCoreUnavailable) return;
+    if (_nativeCoreUnavailable) return null;
     // `loadfile replace` (below) clears the native playlist, dropping any
     // gapless entry armed via setNext — settle its content-fd claim first.
     // No transition is surfaced: the caller is replacing playback anyway.
@@ -433,7 +459,11 @@ class PlayerNative extends PlayerBase {
       loadfileArgs.addAll(['-1', loadfileOption]);
     }
     if (audioOnly) _expectOpenFileLoad = true;
-    await command(loadfileArgs);
+    // The core can be torn down while the awaits above were suspended; the
+    // `command` path makes the same re-check before dispatching.
+    if (_nativeCoreUnavailable) return null;
+    final loadfileReply = await invoke<Map>('command', {'args': loadfileArgs});
+    final playlistEntryId = loadfileReply?['playlistEntryId'];
 
     // mpv's pause property survives loadfile; in-place reloads pause the old
     // file before resolving, so explicitly unpause for the replacement. Set
@@ -442,6 +472,7 @@ class PlayerNative extends PlayerBase {
     if (play) {
       await setProperty('pause', 'no');
     }
+    return playlistEntryId is int ? playlistEntryId : null;
   }
 
   @override
@@ -613,7 +644,7 @@ class PlayerNative extends PlayerBase {
   }
 
   @override
-  void handlePropertyChange(String name, dynamic value) {
+  void handlePropertyChange(String name, dynamic value, {int? sourceId}) {
     if (audioOnly && name == 'playlist-pos') {
       // Detection still belongs to _handleAudioFileLoaded, but this is the last
       // point ordered ahead of the new source's own position reports: they ride
@@ -623,7 +654,7 @@ class PlayerNative extends PlayerBase {
       appLogger.d('MPV-audio: playlist-pos=$value (armed=$_hasArmedNext)');
       return;
     }
-    super.handlePropertyChange(name, value);
+    super.handlePropertyChange(name, value, sourceId: sourceId);
   }
 
   @override
@@ -878,6 +909,18 @@ class PlayerNative extends PlayerBase {
   @override
   Future<void> setLogLevel(String level) async {
     if (_nativeCoreUnavailable) return;
+    if (Platform.isAndroid) {
+      // Carry the preference into native creation, even if another operation
+      // starts initialization before this ordered runtime write gets its turn.
+      _requestedLogLevel = level;
+      final request = _logLevelTail.then((_) async {
+        if (_nativeCoreUnavailable) return;
+        await _ensureInitialized();
+        await invoke('setLogLevel', {'level': level});
+      });
+      _logLevelTail = request.catchError((Object _) {});
+      return request;
+    }
     await _ensureInitialized();
     await invoke('setLogLevel', {'level': level});
   }
