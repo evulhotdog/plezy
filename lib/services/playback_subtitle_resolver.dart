@@ -193,7 +193,7 @@ class PlaybackSubtitleResolver {
       metadata: metadata,
       plexMediaInfo: mediaInfo,
     );
-    final selectedAudio = service.selectAudioTrack(_audioTracksForSource(mediaInfo), preferredAudioTrack)?.track;
+    final selectedAudio = service.selectAudioTrack(audioTracksForSource(mediaInfo), preferredAudioTrack)?.track;
     final primaryPreference = _sourceBackedPreference(
       preferredSubtitleTrack,
       mediaInfo,
@@ -373,11 +373,14 @@ class PlaybackSubtitleResolver {
       language: track.languageCode ?? track.language,
       codec: track.codec,
       channels: track.channels,
-      isDefault: track.selected,
+      isDefault: track.isDefault,
     );
   }
 
-  static List<AudioTrack> _audioTracksForSource(MediaSourceInfo? mediaInfo) {
+  /// Every audio row of [mediaInfo] as the ladder-ranked descriptor
+  /// [audioTrackForSource] builds — the audio catalogue the selection ladder
+  /// sees before the native player has produced its own tracks.
+  static List<AudioTrack> audioTracksForSource(MediaSourceInfo? mediaInfo) {
     return [for (final track in mediaInfo?.audioTracks ?? const <MediaAudioTrack>[]) audioTrackForSource(track)];
   }
 }

@@ -69,10 +69,10 @@ open class MpvPlayerPlugin(
   // down that successor's core; it is acknowledged without touching anything.
   private var coreInstanceId: Long? = null
 
-  // How long a Dart `dispose` waits for the native teardown before being
-  // answered anyway. Generous against slow-but-healthy teardowns (a 4K HDR
-  // session's surface/audio release); small against the alternative, which
-  // is wedging every subsequent playback session behind a hung teardown.
+  // How long a Dart `dispose` waits for native teardown before being
+  // acknowledged. Native lifecycle operations remain serialized on background
+  // workers after the watchdog fires, so a successor cannot overlap a stuck
+  // decoder, exhaust codec instances, or block Android's main thread.
   private val disposeWatchdogMs = 6_000L
 
   /** Same semantics as Activity.runOnUiThread, without needing an Activity. */
@@ -206,6 +206,11 @@ open class MpvPlayerPlugin(
     // (MpvPlayerCore.initialVideoOutput). Absent on the audio-only core and
     // from older callers; hardware decode is the setting's default.
     val hardwareDecoding = call.argument<Boolean>("hardwareDecoding") ?: true
+    // Subtitle "Render Resolution" for the vo=mediacodec OSD plane (Full / ¾ / ½ /
+    // ⅓ / ¼ of the surface); the same fraction the ExoPlayer overlay applies.
+    // Absent from older callers and the audio-only core; full is the default.
+    val subtitleRenderScale = call.argument<Double>("subtitleRenderScale")?.toFloat() ?: 1f
+    val logLevel = call.argument<String>("logLevel") ?: "warn"
     // Video cores need the Activity (surface/view hierarchy); the audio-only
     // core is built on the application context so it can outlive it.
     val coreContext: Context? = if (audioOnly) applicationContext else activity
@@ -264,7 +269,7 @@ open class MpvPlayerPlugin(
         }
 
         gen = ++sessionGeneration
-        core = MpvPlayerCore(coreContext, audioOnly, hardwareDecoding).apply {
+        core = MpvPlayerCore(coreContext, audioOnly, hardwareDecoding, subtitleRenderScale, logLevel).apply {
           delegate = this@MpvPlayerPlugin
         }
         playerCore = core
@@ -356,10 +361,10 @@ open class MpvPlayerPlugin(
         result.success(null)
         return@runOnMain
       }
-      // A hung native teardown must not wedge the Dart-side release chain:
-      // answer after the watchdog even if the teardown thread is stuck, so
-      // the next session can start on a fresh core. The stuck core leaks its
-      // resources until the process ends — recoverable, unlike the wedge.
+      // A hung native teardown must not wedge the Dart-side release chain.
+      // Native create/destroy remains serialized on background workers behind
+      // that teardown, so a successor cannot accumulate another MediaCodec
+      // instance while the old one still owns its resources.
       val completed = AtomicBoolean(false)
       fun completeOnce(reason: String) {
         if (completed.compareAndSet(false, true)) {
@@ -469,25 +474,42 @@ open class MpvPlayerPlugin(
       result.error("NOT_INITIALIZED", "Player not initialized", null)
       return
     }
-    core.command(args.toTypedArray()) { success ->
-      if (success) {
-        result.success(null)
-      } else {
-        result.error("COMMAND_FAILED", "mpv command failed", args)
-      }
+    // `loadfile` answers with the playlist entry it created so Dart can tie
+    // the load to that source's start-file/playback-restart/end-file events;
+    // every other command answers null.
+    core.commandForSource(args.toTypedArray()) { outcome ->
+      outcome.fold(
+        onSuccess = { playlistEntryId ->
+          result.success(playlistEntryId?.let { mapOf("playlistEntryId" to it) })
+        },
+        onFailure = { error ->
+          result.error("COMMAND_FAILED", error.message ?: "mpv command failed", args)
+        }
+      )
     }
   }
 
   private fun handleSetLogLevel(call: MethodCall, result: MethodChannel.Result) {
-    if (call.argument<String>("level") == null) {
-      result.error("INVALID_ARGS", "Missing 'level'", null)
+    val level = call.argument<Any>("level") as? String
+    if (level == null) {
+      result.error("INVALID_ARGS", "Missing or invalid 'level'", null)
       return
     }
-    result.error(
-      "UNSUPPORTED",
-      "Runtime mpv log level changes are not supported on Android",
-      null
-    )
+    val core = playerCore
+    if (core?.isInitialized != true) {
+      completeMpvPropertyNotInitialized(result)
+      return
+    }
+    core.setLogLevel(level) { outcome ->
+      when (val failure = outcome.exceptionOrNull()) {
+        null -> result.success(null)
+        is CancellationException -> completeMpvPropertyNotInitialized(result)
+        else -> {
+          Log.w(tag, "MPV rejected log level change", failure)
+          result.error("SET_LOG_LEVEL_FAILED", "MPV log level change was rejected", null)
+        }
+      }
+    }
   }
 
   private fun handleSetVisible(call: MethodCall, result: MethodChannel.Result) {
@@ -608,8 +630,12 @@ open class MpvPlayerPlugin(
   // PlayerDelegate
 
   override fun onPropertyChange(name: String, value: Any?) {
+    onPropertyChange(name, value, null)
+  }
+
+  override fun onPropertyChange(name: String, value: Any?, sourceId: Long?) {
     val propId = nameToId[name] ?: return
-    channels.emitProperty(propId, value)
+    channels.emitProperty(propId, value, sourceId)
   }
 
   override fun onEvent(name: String, data: Map<String, Any>?) {
