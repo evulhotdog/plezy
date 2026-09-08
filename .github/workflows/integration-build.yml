@@ -1,11 +1,17 @@
 # Fork-only workflow: lives on integration/all-features and survives upstream
 # merges because upstream will never own this filename. Never PR it upstream.
 #
-# Builds the Android APK on every push to integration/all-features so feature
-# integration is verified before merging to main. Runs on the fork, which has
-# no signing secrets, so APKs are signed with an ephemeral per-run keystore:
-# they compile-verify and produce artifacts, but cannot install over each
-# other or over the Shield's debug-signed dev build.
+# On every push to integration/all-features: builds the arm64 release APK and
+# publishes a GitHub release so Obtainium can track and install it (Obtainium
+# picks the latest non-prerelease release and takes the version from the tag).
+#
+#   - Signing: the fork's ANDROID_KEYSTORE_* secrets hold the standard debug
+#     keystore — the same key already trusted on the Shield — so Obtainium
+#     updates install in place with no data wipe. A missing secret is a hard
+#     failure: signing with a fresh per-run key would strand future updates.
+#   - versionCode: max(pubspec build number, Shield's installed code floor)
+#     + run number, so it always increases past any build already installed.
+#   - Tag: v<pubspec base>.<versionCode>, e.g. v2.19.1.2159.
 name: Integration Build
 
 on:
@@ -20,13 +26,16 @@ concurrency:
 
 env:
   FLUTTER_VERSION: "3.47.1"
+  # versionCode floor: Shield's installed com.edde746.plezy versionCode at
+  # adoption (read via `adb shell dumpsys package com.edde746.plezy`).
+  VERSION_CODE_FLOOR: "2157"
 
 jobs:
   build-android:
-    name: Android (arm64)
+    name: Android (arm64) + release
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -64,36 +73,64 @@ jobs:
       - name: Install dependencies
         run: flutter pub get --enforce-lockfile --no-example
 
-      - name: Configure ephemeral signing
+      - name: Compute version
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
-          keytool -genkeypair -keystore android/app/upload-keystore.jks \
-            -storepass integration-ci -keypass integration-ci \
-            -alias integration-ci -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=Plezy Integration CI, OU=CI, O=Plezy, C=US"
+          VERSION_BASE=$(sed -n 's/^version: \([0-9.]*\).*/\1/p' pubspec.yaml)
+          BASE_CODE=$(python3 scripts/pubspec_version.py --build-number pubspec.yaml)
+          VERSION_CODE=$(( ( VERSION_CODE_FLOOR > BASE_CODE ? VERSION_CODE_FLOOR : BASE_CODE ) + RUN_NUMBER ))
+          echo "VERSION_BASE=$VERSION_BASE" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "Tag will be v$VERSION_BASE.$VERSION_CODE"
+
+      - name: Configure signing (stable fork key)
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [[ -z "$ANDROID_KEYSTORE_BASE64" ]]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 secret missing; refusing to sign with a fresh key (it would strand future updates and force a data wipe)"
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/fork-release.keystore
           {
-            echo "storePassword=integration-ci"
-            echo "keyPassword=integration-ci"
-            echo "keyAlias=integration-ci"
-            echo "storeFile=upload-keystore.jks"
+            echo "storePassword=$ANDROID_STORE_PASSWORD"
+            echo "keyPassword=$ANDROID_KEY_PASSWORD"
+            echo "keyAlias=$ANDROID_KEY_ALIAS"
+            echo "storeFile=fork-release.keystore"
           } > android/key.properties
 
       - name: Build APK
-        # arm64-only: matches the dev/shield target, ~3x faster than the
-        # multi-ABI split CI does for releases. Other ABIs compile the same
-        # sources and stay covered by upstream's release builds.
-        run: flutter build apk --release --target-platform android-arm64 --dart-define=GIT_COMMIT=${{ github.sha }} --obfuscate --split-debug-info=debug-info/android
+        # arm64-only: matches the Shield target, ~3x faster than the multi-ABI
+        # split the upstream release CI does. Other ABIs compile the same
+        # sources and stay covered upstream.
+        run: flutter build apk --release --target-platform android-arm64 --build-number="$VERSION_CODE" --dart-define=GIT_COMMIT=${{ github.sha }} --obfuscate --split-debug-info=debug-info/android
 
       - name: Clean up keystore
         if: always()
-        run: rm -f android/app/upload-keystore.jks android/key.properties
+        run: rm -f android/app/fork-release.keystore android/key.properties
 
       - name: Package APK
-        run: cp build/app/outputs/flutter-apk/app-release.apk plezy-android-arm64.apk
+        run: cp build/app/outputs/flutter-apk/app-release.apk "plezy-arm64-v$VERSION_BASE.$VERSION_CODE.apk"
+
+      - name: Publish release (Obtainium)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v$VERSION_BASE.$VERSION_CODE"
+          gh release create "$TAG" "plezy-arm64-v$VERSION_BASE.$VERSION_CODE.apk" \
+            --target "$GITHUB_SHA" \
+            --title "Plezy $TAG (integration build)" \
+            --notes "Automated integration-branch build of ${GITHUB_SHA::7}. versionCode=$VERSION_CODE" \
+            || gh release upload "$TAG" "plezy-arm64-v$VERSION_BASE.$VERSION_CODE.apk" --clobber
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: plezy-android-arm64
           path: |
-            plezy-android-arm64.apk
+            plezy-arm64-v*.apk
             debug-info/android/
