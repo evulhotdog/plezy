@@ -1,0 +1,99 @@
+# Fork-only workflow: lives on integration/all-features and survives upstream
+# merges because upstream will never own this filename. Never PR it upstream.
+#
+# Builds the Android APK on every push to integration/all-features so feature
+# integration is verified before merging to main. Runs on the fork, which has
+# no signing secrets, so APKs are signed with an ephemeral per-run keystore:
+# they compile-verify and produce artifacts, but cannot install over each
+# other or over the Shield's debug-signed dev build.
+name: Integration Build
+
+on:
+  push:
+    branches:
+      - integration/all-features
+  workflow_dispatch:
+
+concurrency:
+  group: integration-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: "3.47.1"
+
+jobs:
+  build-android:
+    name: Android (arm64)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Java
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: "stable"
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+          pub-cache: false
+
+      - name: Cache Pub dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.pub-cache
+          key: integration-build-${{ runner.os }}-${{ runner.arch }}-pub-${{ hashFiles('pubspec.yaml', 'pubspec.lock') }}
+
+      - name: Cache Gradle
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: integration-build-${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+
+      - name: Install dependencies
+        run: flutter pub get --enforce-lockfile --no-example
+
+      - name: Configure ephemeral signing
+        run: |
+          keytool -genkeypair -keystore android/app/upload-keystore.jks \
+            -storepass integration-ci -keypass integration-ci \
+            -alias integration-ci -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Plezy Integration CI, OU=CI, O=Plezy, C=US"
+          {
+            echo "storePassword=integration-ci"
+            echo "keyPassword=integration-ci"
+            echo "keyAlias=integration-ci"
+            echo "storeFile=upload-keystore.jks"
+          } > android/key.properties
+
+      - name: Build APK
+        # arm64-only: matches the dev/shield target, ~3x faster than the
+        # multi-ABI split CI does for releases. Other ABIs compile the same
+        # sources and stay covered by upstream's release builds.
+        run: flutter build apk --release --target-platform android-arm64 --dart-define=GIT_COMMIT=${{ github.sha }} --obfuscate --split-debug-info=debug-info/android
+
+      - name: Clean up keystore
+        if: always()
+        run: rm -f android/app/upload-keystore.jks android/key.properties
+
+      - name: Package APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk plezy-android-arm64.apk
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: plezy-android-arm64
+          path: |
+            plezy-android-arm64.apk
+            debug-info/android/
