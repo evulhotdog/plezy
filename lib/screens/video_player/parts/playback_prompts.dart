@@ -197,6 +197,7 @@ extension _VideoPlayerPlaybackPromptMethods on VideoPlayerScreenState {
   }
 
   void _cancelAutoPlay() {
+    if (_shuttingDown) return;
     _episode.autoPlayTimer?.cancel();
     _unfocusPlayNextPrompt();
     _progressTracker?.resumeAfterStoppedReport();
