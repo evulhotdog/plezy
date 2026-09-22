@@ -9,16 +9,17 @@ import 'package:plezy/services/jellyfin_client.dart';
 import 'package:plezy/services/multi_server_manager.dart';
 import 'package:plezy/services/plex_auth_service.dart';
 
+import '../test_helpers/backend_client_fixtures.dart';
 import '../test_helpers/multi_server_fixtures.dart';
 import '../test_helpers/prefs.dart';
 
 void main() {
   // OfflineModeProvider depends on a MultiServerManager. We instantiate one with
   // no connected servers — this exercises only the in-memory bookkeeping (id
-  // maps + status stream) and never opens an HTTP socket. Network paths
-  // (initialize's connectivity_plus call) are skipped: the
-  // MissingPluginException in tests is already swallowed by the provider's
-  // try/catch, so we don't drive `initialize()` here.
+  // maps + status stream) and never opens an HTTP socket. `initialize()` is
+  // not driven here: its connectivity path is ConnectivityProbe, which has its
+  // own coverage in test/services/connectivity_probe_test.dart, and the
+  // snapshot-to-flags mapping is exercised through `applyConnectivityResults`.
   setUp(resetSharedPreferencesForTest);
 
   group('OfflineModeProvider', () {
@@ -297,16 +298,12 @@ PlexAccountConnection _plexConnection() {
   );
 }
 
-JellyfinConnection _jellyfinConnection() {
-  return JellyfinConnection(
-    id: 'jf-machine/user-a',
-    baseUrl: 'https://jellyfin.example',
-    serverName: 'Jellyfin',
-    serverMachineId: 'jf-machine',
-    userId: 'user-a',
-    userName: 'User A',
-    accessToken: 'token',
-    deviceId: 'device',
-    createdAt: DateTime.fromMillisecondsSinceEpoch(0),
-  );
-}
+JellyfinConnection _jellyfinConnection() => testJellyfinConnection(
+  machineId: 'jf-machine',
+  userId: 'user-a',
+  baseUrl: 'https://jellyfin.example',
+  serverName: 'Jellyfin',
+  userName: 'User A',
+  deviceId: 'device',
+  createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+);

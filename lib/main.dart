@@ -40,12 +40,15 @@ import 'services/macos_window_service.dart';
 import 'services/native_window_service.dart';
 import 'services/fullscreen_state_manager.dart';
 import 'services/settings_service.dart';
+import 'services/agent_control_service.dart';
+import 'widgets/agent_control_scope.dart';
 import 'widgets/settings_builder.dart';
 import 'utils/platform_detector.dart';
 import 'utils/pointer_scroll_axis.dart';
 import 'services/apple_tv_remote_touch_service.dart';
 import 'services/discord_rpc_service.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 import 'services/image_cache_service.dart';
 import 'services/gamepad_service.dart';
 import 'services/trackers/tracker_coordinator.dart';
@@ -68,6 +71,7 @@ import 'services/server_registry.dart';
 import 'services/download_manager_service.dart';
 import 'services/pip_service.dart';
 import 'services/download_storage_service.dart';
+import 'services/connectivity_probe.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'services/jellyfin_api_cache.dart';
 import 'services/plex_api_cache.dart';
@@ -76,6 +80,7 @@ import 'database/download_operations.dart';
 import 'database/tvos_database_recovery_store.dart';
 import 'screens/video_player_screen.dart';
 import 'utils/app_logger.dart';
+import 'utils/certificate_trust.dart';
 import 'utils/managed_http_client.dart';
 import 'utils/media_server_http_client.dart';
 import 'utils/orientation_helper.dart';
@@ -135,6 +140,7 @@ void _registerTvosPlatformPlugins() {
 
 void main() {
   final binding = PlezyWidgetsBinding.ensureInitialized();
+  if (agentControlEnabled) AgentControlService.instance.register();
   AndroidExitDiagnostics.markStartupPhase(AndroidStartupPhase.dartMain);
   // Keep the accessibility tree available to Maestro and other UI automation
   // without adding release-build overhead.
@@ -260,9 +266,11 @@ Future<_StartupDependencies> _initializeApplication() async {
     // then run the whole gate — migrations, native recovery, database open —
     // a second time.
     await _optionalGatePhase(StartupPhase.crashReporting, () async {
+      final nativeDatabasePath = await _sentryNativeDatabasePath();
       await SentryFlutter.init((options) {
         options.dsn = _sentryDsn;
         options.release = _sentryRelease();
+        if (nativeDatabasePath != null) options.nativeDatabasePath = nativeDatabasePath;
         if (_sentryEnvironment.isNotEmpty) options.environment = _sentryEnvironment;
         if (_sentryDist.isNotEmpty) options.dist = _sentryDist;
         options.tracesSampleRate = 0;
@@ -303,6 +311,17 @@ String _sentryRelease() {
   if (gitCommit.length >= 7) return 'plezy@${gitCommit.substring(0, 7)}';
   if (gitCommit.isNotEmpty) return 'plezy@$gitCommit';
   return 'plezy@unknown';
+}
+
+Future<String?> _sentryNativeDatabasePath() async {
+  if (kIsWeb || !(Platform.isWindows || Platform.isLinux)) return null;
+  try {
+    final directory = await getApplicationSupportDirectory();
+    return p.join(directory.path, 'sentry-native');
+  } catch (error, stackTrace) {
+    appLogger.d('Sentry native database location unavailable', error: error, stackTrace: stackTrace);
+    return null;
+  }
 }
 
 const startupBootstrapProgressKey = Key('startup-bootstrap-progress');
@@ -897,6 +916,10 @@ Future<_StartupDependencies> _initializeStartup(SettingsService settings) async 
   }
 
   AppDatabase? openedDatabase;
+  // Started first so the store walk overlaps the phases below. Every request
+  // to a user-entered server verifies against the result, so it is awaited
+  // before any client can exist (#2339); the load itself never throws.
+  final userAuthorities = Platform.isAndroid ? CertificateTrust.loadUserAuthorities() : null;
   try {
     // Slang builds the base locale eagerly, so `t` already resolves before
     // this runs; a failure here degrades to English rather than no app.
@@ -927,6 +950,10 @@ Future<_StartupDependencies> _initializeStartup(SettingsService settings) async 
         VideoDecodeCapabilities.getInstance(),
       ).wait;
     });
+
+    if (userAuthorities != null) {
+      await _optionalGatePhase(StartupPhase.certificateTrust, () => userAuthorities);
+    }
 
     final storage = await _gatePhase(StartupPhase.storage, StorageService.getInstance);
     markStartupPhase('platform-services');
@@ -1835,7 +1862,14 @@ class _AppShell extends StatelessWidget {
                       const SingleActivator(LogicalKeyboardKey.browserBack): const DismissIntent(),
                       const SingleActivator(LogicalKeyboardKey.gameButtonB): const DismissIntent(),
                     },
-                    builder: (context, child) => rootShell(child),
+                    builder: (context, child) {
+                      final shell = rootShell(child);
+                      if (!agentControlEnabled) return shell;
+                      return AgentControlScope(
+                        commandContext: () => rootNavigatorKey.currentState?.overlay?.context,
+                        child: shell,
+                      );
+                    },
                   ),
                 ),
               );
@@ -2061,19 +2095,8 @@ class _SetupScreenState extends State<SetupScreen> with MountedSetStateMixin {
     }
 
     // Check network connectivity early to fast-path airplane mode.
-    // Timeout guards against connectivity_plus hanging on some Android TV devices after force-close.
-    bool hasNetwork;
     unawaited(Sentry.addBreadcrumb(Breadcrumb(message: 'Checking network connectivity', category: 'setup')));
-    try {
-      final connectivityResult = await Connectivity().checkConnectivity().timeout(
-        const Duration(seconds: 3),
-        onTimeout: () => [ConnectivityResult.other],
-      );
-      hasNetwork = !connectivityResult.contains(ConnectivityResult.none);
-    } catch (e) {
-      // connectivity_plus throws DBusServiceUnknownException on Linux without NetworkManager
-      hasNetwork = true;
-    }
+    final hasNetwork = !(await ConnectivityProbe.check()).contains(ConnectivityResult.none);
 
     unawaited(
       Sentry.addBreadcrumb(Breadcrumb(message: 'Network check done: hasNetwork=$hasNetwork', category: 'setup')),

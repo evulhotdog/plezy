@@ -159,6 +159,184 @@ void main() {
       );
     });
 
+    test('MPV restores the outgoing file when loadfile is rejected', () async {
+      // mpv keeps the outgoing file loaded when `loadfile` fails, so every
+      // per-file fact open() tore down before dispatching still describes the
+      // file on screen and has to come back — the rendered frame is what a
+      // Watch Together rebind reads for readiness, and a paused file emits no
+      // further playback-restart to re-establish it.
+      await withMockPlayerChannels(
+        methodChannelName: 'com.plezy/mpv_player',
+        eventChannelName: 'com.plezy/mpv_player/events',
+        methodHandler: (call) {
+          if (call.method == 'initialize') return Future.value(true);
+          if (call.method == 'command' && (call.arguments as Map)['args'][0] == 'loadfile') {
+            throw PlatformException(code: 'COMMAND_FAILED', message: 'rejected');
+          }
+          return Future.value(null);
+        },
+        testBody: () async {
+          final player = _TestPlayerNative();
+          final announced = <Duration?>[];
+          final subscription = player.streams.playheadJump.listen(announced.add);
+          try {
+            _seedTracks(player);
+            player.seedExternalSubtitleMetadata(const [
+              SubtitleTrack(
+                id: 'old-external',
+                title: 'Old sidecar',
+                language: 'eng',
+                codec: 'srt',
+                isDefault: false,
+                isForced: true,
+                isExternal: true,
+                uri: 'https://example.test/old.srt',
+              ),
+            ]);
+            player.handlePlayerEvent('start-file', {'sourceId': 1});
+            player.handlePlayerEvent('playback-restart', {'sourceId': 1, 'positionSeconds': 188.0});
+            player.handlePropertyChange('time-pos', 188.0);
+            player.handlePropertyChange('duration', 439.968);
+            player.handlePropertyChange('seekable', true);
+            expect(player.state.hasRenderedFrame, isTrue);
+
+            await expectLater(
+              player.open(
+                Media('https://example.test/rejected.mkv', start: const Duration(seconds: 12)),
+                timelineDuration: const Duration(seconds: 401),
+                externalSubtitles: const [
+                  SubtitleTrack(
+                    id: 'rejected-external',
+                    title: 'Rejected sidecar',
+                    language: 'spa',
+                    codec: 'ass',
+                    isDefault: false,
+                    isForced: false,
+                    isExternal: true,
+                    uri: 'https://example.test/rejected.ass',
+                  ),
+                ],
+              ),
+              throwsA(isA<PlatformException>()),
+            );
+            await Future<void>.delayed(Duration.zero);
+
+            expect(player.state.hasRenderedFrame, isTrue);
+            expect(player.state.position, const Duration(seconds: 188));
+            expect(player.currentPosition, const Duration(seconds: 188));
+            expect(player.state.duration, const Duration(milliseconds: 439968));
+            expect(player.state.seekable, isTrue);
+            expect(player.state.tracks.audio.single.title, 'English');
+            expect(player.state.tracks.subtitle.single.title, 'English');
+            // The abandoned resume target was announced; so is the way back.
+            expect(announced, [const Duration(seconds: 12), const Duration(seconds: 188)]);
+
+            // The track-list gate armed for the load that never started is
+            // lifted, and the outgoing file's external metadata still applies.
+            player.handlePropertyChange('track-list', const [
+              {
+                'type': 'sub',
+                'id': 'restored-external',
+                'external': true,
+                'external-filename': 'https://example.test/old.srt',
+                'selected': true,
+              },
+            ]);
+            expect(player.state.tracks.subtitle.single.title, 'Old sidecar');
+            expect(player.state.tracks.subtitle.single.isForced, isTrue);
+
+            // A later duration report is not overridden by the rejected
+            // open's timeline.
+            player.handlePropertyChange('duration', 500.0);
+            expect(player.state.duration, const Duration(seconds: 500));
+          } finally {
+            await subscription.cancel();
+            await player.dispose();
+          }
+        },
+      );
+    });
+
+    test('MPV restores the outgoing file when a pre-loadfile command is rejected', () async {
+      // The header rebuild runs after the teardown too; a failure there must
+      // roll back the same way as a rejected loadfile.
+      await withMockPlayerChannels(
+        methodChannelName: 'com.plezy/mpv_player',
+        eventChannelName: 'com.plezy/mpv_player/events',
+        methodHandler: (call) {
+          if (call.method == 'initialize') return Future.value(true);
+          if (call.method == 'command' && (call.arguments as Map)['args'][0] == 'change-list') {
+            throw PlatformException(code: 'COMMAND_FAILED', message: 'rejected');
+          }
+          return Future.value(null);
+        },
+        testBody: () async {
+          final player = PlayerNative();
+          try {
+            _seedTracks(player);
+            player.handlePlayerEvent('start-file', {'sourceId': 1});
+            player.handlePlayerEvent('playback-restart', {'sourceId': 1, 'positionSeconds': 0.0});
+            player.handlePropertyChange('seekable', true);
+
+            await expectLater(player.open(Media('https://example.test/next.mkv')), throwsA(isA<PlatformException>()));
+
+            expect(player.state.hasRenderedFrame, isTrue);
+            expect(player.state.seekable, isTrue);
+            expect(player.state.tracks.audio.single.title, 'English');
+            _seedTracks(player);
+            expect(player.state.tracks.subtitle.single.title, 'English');
+          } finally {
+            await player.dispose();
+          }
+        },
+      );
+    });
+
+    test('MPV keeps the accepted replacement when the post-load unpause is rejected', () async {
+      // Once mpv accepts the loadfile the outgoing file is gone; a failure
+      // after that point must not resurrect its frame, tracks or playhead.
+      await withMockPlayerChannels(
+        methodChannelName: 'com.plezy/mpv_player',
+        eventChannelName: 'com.plezy/mpv_player/events',
+        methodHandler: (call) {
+          if (call.method == 'initialize') return Future.value(true);
+          if (call.method == 'command' && (call.arguments as Map)['args'][0] == 'loadfile') {
+            return Future.value({'playlistEntryId': 2});
+          }
+          if (call.method == 'setProperty' && (call.arguments as Map)['name'] == 'pause') {
+            throw PlatformException(code: 'SET_PROPERTY_FAILED');
+          }
+          return Future.value(null);
+        },
+        testBody: () async {
+          final player = PlayerNative();
+          try {
+            _seedTracks(player);
+            player.handlePlayerEvent('start-file', {'sourceId': 1});
+            player.handlePlayerEvent('playback-restart', {'sourceId': 1, 'positionSeconds': 188.0});
+            player.handlePropertyChange('time-pos', 188.0);
+
+            await expectLater(
+              player.open(Media('https://example.test/next.mkv', start: const Duration(seconds: 12))),
+              throwsA(isA<PlatformException>()),
+            );
+
+            expect(player.state.hasRenderedFrame, isFalse);
+            expect(player.state.position, const Duration(seconds: 12));
+            expect(player.state.tracks.audio, isEmpty);
+            // The gate stays armed for the accepted load's start-file.
+            _seedTracks(player);
+            expect(player.state.tracks.audio, isEmpty);
+            player.handlePlayerEvent('start-file', {'sourceId': 2});
+            _seedTracks(player);
+            expect(player.state.tracks.audio.single.title, 'English');
+          } finally {
+            await player.dispose();
+          }
+        },
+      );
+    });
+
     test('ExoPlayer applies audio settings queued before initialization', () async {
       final calls = <MethodCall>[];
       await withMockPlayerChannels(
@@ -583,7 +761,7 @@ void main() {
       );
     });
 
-    test('MPV disables subtitles before loading media', () async {
+    test('MPV suppresses default subtitle selection per file, never on the outgoing one', () async {
       final calls = <MethodCall>[];
 
       await withMockPlayerChannels(
@@ -601,19 +779,68 @@ void main() {
         testBody: () async {
           final player = PlayerNative();
           try {
+            // Stand in for an in-place reload: a file is already playing.
+            player.handlePlayerEvent('start-file', {'sourceId': 1});
+            player.handlePropertyChange('track-list', const [
+              {'type': 'sub', 'id': '1', 'title': 'Outgoing', 'lang': 'fre', 'external': false},
+            ]);
+            expect(player.state.tracks.subtitle, hasLength(1));
+
             await player.open(Media('https://example.test/next.mkv'));
 
-            final sidIndex = _setPropertyCallIndex(calls, 'sid');
-            final secondarySidIndex = _setPropertyCallIndex(calls, 'secondary-sid');
-            final loadIndex = _loadfileCallIndex(calls);
+            // A `sid` property write would deselect the outgoing file's
+            // subtitle, and the track-list update that follows re-seeds its
+            // tracks over the list this open cleared (#2323).
+            expect(_setPropertyCallIndex(calls, 'sid'), -1);
+            expect(_setPropertyCallIndex(calls, 'secondary-sid'), -1);
+            expect(_loadfileArgs(calls).last, contains('sid=no,secondary-sid=no'));
 
-            expect(sidIndex, greaterThanOrEqualTo(0));
-            expect(secondarySidIndex, greaterThanOrEqualTo(0));
-            expect(loadIndex, greaterThanOrEqualTo(0));
-            expect(sidIndex, lessThan(loadIndex));
-            expect(secondarySidIndex, lessThan(loadIndex));
-            expect(_setPropertyValue(calls[sidIndex]), 'no');
-            expect(_setPropertyValue(calls[secondarySidIndex]), 'no');
+            // Anything still describing the outgoing file is ignored.
+            player.handlePropertyChange('track-list', const [
+              {'type': 'sub', 'id': '1', 'title': 'Outgoing', 'lang': 'fre', 'external': false},
+            ]);
+            expect(player.state.tracks.subtitle, isEmpty);
+
+            player.handlePlayerEvent('start-file', {'sourceId': 2});
+            player.handlePropertyChange('track-list', const [
+              {'type': 'sub', 'id': '1', 'title': 'Incoming', 'lang': 'eng', 'external': false},
+            ]);
+            expect(player.state.tracks.subtitle.single.title, 'Incoming');
+          } finally {
+            await player.dispose();
+          }
+        },
+      );
+    });
+
+    test('MPV combines server-positioned HLS options with quoted external subtitles', () async {
+      final calls = <MethodCall>[];
+      await withMockPlayerChannels(
+        methodChannelName: 'com.plezy/mpv_player',
+        eventChannelName: 'com.plezy/mpv_player/events',
+        methodHandler: (call) async {
+          calls.add(call);
+          return call.method == 'initialize' ? true : null;
+        },
+        testBody: () async {
+          final player = PlayerNative();
+          const uri = 'https://example.test/live.m3u8';
+          const subtitle = 'https://example.test/sub.srt?value=a,b';
+          try {
+            await player.open(
+              Media(uri),
+              isLive: true,
+              startLivePlaylistFromBeginning: true,
+              externalSubtitles: const [SubtitleTrack(id: 'external', uri: subtitle)],
+            );
+            expect(_loadfileArgs(calls), [
+              'loadfile',
+              uri,
+              'replace',
+              '-1',
+              'sub-files=${_fixedLengthPathList([subtitle])},sid=no,secondary-sid=no,'
+                  'demuxer-lavf-o-append=live_start_index=0',
+            ]);
           } finally {
             await player.dispose();
           }
@@ -639,7 +866,6 @@ void main() {
         testBody: () async {
           final player = PlayerNative();
           try {
-            expect(player.attachesExternalSubtitlesAtOpen, isTrue);
             const english = 'https://example.test/library/parts/1/subtitle.srt?token=a,b:c';
             const french = 'https://example.test/subtitles/fr forced.ass';
 
@@ -656,7 +882,7 @@ void main() {
               'https://example.test/movie.mkv',
               'replace',
               '-1',
-              'sub-files=${_fixedLengthPathList([english, french])}',
+              'sub-files=${_fixedLengthPathList([english, french])},sid=no,secondary-sid=no',
             ]);
             expect(_commandCalls(calls, 'sub-add'), isEmpty);
           } finally {
@@ -770,9 +996,10 @@ void main() {
               'https://example.test/transcode.m3u8',
               'replace',
               '-1',
-              'sub-files=${_fixedLengthPathList([subtitleUri])}',
+              'sub-files=${_fixedLengthPathList([subtitleUri])},sid=no,secondary-sid=no',
             ]);
 
+            player.handlePlayerEvent('start-file', null);
             player.handlePropertyChange('track-list', const [
               {'type': 'audio', 'id': 'sidecar-audio', 'external': true, 'external-filename': subtitleUri},
               {
@@ -825,6 +1052,7 @@ void main() {
               externalSubtitles: const [SubtitleTrack(id: 'external', uri: sidecarUri, isExternal: true)],
             );
 
+            player.handlePlayerEvent('start-file', null);
             player.handlePropertyChange('track-list', const [
               {
                 'type': 'sub',
@@ -1050,6 +1278,82 @@ void main() {
       );
     });
 
+    test('state records whether the current file has rendered a frame', () async {
+      await withMockPlayerChannels(
+        methodChannelName: 'com.plezy/mpv_player',
+        eventChannelName: 'com.plezy/mpv_player/events',
+        testBody: () async {
+          final player = PlayerNative();
+          try {
+            expect(player.state.hasRenderedFrame, isFalse);
+            player.handlePlayerEvent('start-file', {'sourceId': 1});
+            player.handlePlayerEvent('file-loaded', {'sourceId': 1});
+            expect(player.state.hasRenderedFrame, isFalse);
+            player.handlePlayerEvent('playback-restart', {'sourceId': 1, 'positionSeconds': 0.0});
+            expect(player.state.hasRenderedFrame, isTrue);
+
+            // A seek's restart and end of file leave the fact in place.
+            player.handlePlayerEvent('playback-restart', {'sourceId': 1, 'positionSeconds': 30.0});
+            player.handlePlayerEvent('end-file', {'sourceId': 1, 'reason': 0});
+            expect(player.state.hasRenderedFrame, isTrue);
+
+            // A new file starts with nothing rendered; a replaced source's late
+            // restart cannot claim the new one's frame.
+            player.handlePlayerEvent('start-file', {'sourceId': 2});
+            expect(player.state.hasRenderedFrame, isFalse);
+            player.handlePlayerEvent('playback-restart', {'sourceId': 1, 'positionSeconds': 31.0});
+            expect(player.state.hasRenderedFrame, isFalse);
+            player.handlePlayerEvent('playback-restart', {'sourceId': 2, 'positionSeconds': 0.0});
+            expect(player.state.hasRenderedFrame, isTrue);
+
+            // A backend without start-file (ExoPlayer) marks the new file at
+            // its media-item transition instead.
+            player.handlePlayerEvent('file-loaded', {'sourceId': 2});
+            expect(player.state.hasRenderedFrame, isFalse);
+
+            // open() resolves before the backend's start-file: the fact is
+            // already the new file's by then, not the outgoing file's.
+            player.handlePlayerEvent('playback-restart', {'sourceId': 2, 'positionSeconds': 1.0});
+            expect(player.state.hasRenderedFrame, isTrue);
+            await player.open(Media('https://example.test/next.mkv'));
+            expect(player.state.hasRenderedFrame, isFalse);
+          } finally {
+            await player.dispose();
+          }
+        },
+      );
+    });
+
+    test('a failed ExoPlayer open keeps the outgoing file\'s rendered frame', () async {
+      await withMockPlayerChannels(
+        methodChannelName: 'com.plezy/exo_player',
+        eventChannelName: 'com.plezy/exo_player/events',
+        methodHandler: (call) {
+          switch (call.method) {
+            case 'initialize':
+              return Future.value(true);
+            case 'open':
+              throw PlatformException(code: 'OPEN_FAILED');
+            default:
+              return Future.value(null);
+          }
+        },
+        testBody: () async {
+          final player = PlayerAndroid();
+          try {
+            player.handlePlayerEvent('file-loaded', null);
+            player.handlePlayerEvent('playback-restart', {'positionSeconds': 0.0});
+            expect(player.state.hasRenderedFrame, isTrue);
+
+            await expectLater(player.open(Media('https://example.test/next.mkv')), throwsA(isA<PlatformException>()));
+            expect(player.state.hasRenderedFrame, isTrue);
+          } finally {
+            await player.dispose();
+          }
+        },
+      );
+    });
+
     test('MPV exposes primary media readiness before external subtitles finish', () async {
       await withMockPlayerChannels(
         methodChannelName: 'com.plezy/mpv_player',
@@ -1228,6 +1532,12 @@ void main() {
 }
 
 class _TestPlayerAndroid extends PlayerAndroid {
+  void seedExternalSubtitleMetadata(List<SubtitleTrack> subtitles) {
+    setExternalSubtitleMetadata(subtitles);
+  }
+}
+
+class _TestPlayerNative extends PlayerNative {
   void seedExternalSubtitleMetadata(List<SubtitleTrack> subtitles) {
     setExternalSubtitleMetadata(subtitles);
   }

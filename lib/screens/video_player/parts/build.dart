@@ -50,9 +50,7 @@ extension _VideoPlayerBuildMethods on VideoPlayerScreenState {
   PlaybackSourceSubtitleChoice? _selectedSourceSubtitleChoiceForControls(List<MediaSubtitleTrack> tracks) {
     if (tracks.isEmpty) return null;
     if (widget.isLive) {
-      // Live selection is owned by the session state, not a PlaybackSession;
-      // tune metadata may carry stale server-side `selected` flags, so the
-      // fallback loop below must not run for live.
+      // Live selection is owned by the session state, not a PlaybackSession.
       final selected = _live.selectedSubtitle;
       return selected == null
           ? const PlaybackSourceSubtitleChoice.off()
@@ -66,9 +64,12 @@ extension _VideoPlayerBuildMethods on VideoPlayerScreenState {
         return PlaybackSourceSubtitleChoice.source(sourceId);
       }
     }
-    for (final track in tracks) {
-      if (track.selected) return PlaybackSourceSubtitleChoice.source(track.id);
-    }
+    // No fallback to `MediaSubtitleTrack.selected`. That flag is the server's
+    // *request* (Plex `Stream.selected`, Jellyfin `DefaultSubtitleStreamIndex`)
+    // and feeds `TrackSelectionService.selectSubtitleTrack` Priority 2 as an
+    // input; it is never a report of what the resolver settled on, and live
+    // tune metadata can carry it stale. Reading it back here ticked rows that
+    // were never selected.
     return const PlaybackSourceSubtitleChoice.off();
   }
 
@@ -96,7 +97,13 @@ extension _VideoPlayerBuildMethods on VideoPlayerScreenState {
     );
   }
 
-  Widget _buildInitializationError(String message) {
+  /// The screen's failure surface, shared by a core that failed to start and
+  /// a media open that failed after it did. Retry is the primary action and
+  /// takes focus explicitly: a child `autofocus` never fires here, because
+  /// the screen-level [Focus] claims the scope while the loading spinner is
+  /// up and Flutter drops a later autofocus request once the scope already
+  /// has a focused child. See [VideoPlayerScreenState._initializationErrorFocusNode].
+  Widget _buildPlaybackFailure(String message, {required VoidCallback onRetry}) {
     return Scaffold(
       backgroundColor: Colors.black,
       body: Center(
@@ -119,9 +126,9 @@ extension _VideoPlayerBuildMethods on VideoPlayerScreenState {
                   mainAxisAlignment: .center,
                   children: [
                     FocusableButton(
-                      autofocus: true,
-                      onPressed: _retryPlayerInitialization,
-                      child: FilledButton(onPressed: _retryPlayerInitialization, child: Text(t.common.retry)),
+                      focusNode: _initializationErrorFocusNode,
+                      onPressed: onRetry,
+                      child: FilledButton(onPressed: onRetry, child: Text(t.common.retry)),
                     ),
                     const SizedBox(width: 12),
                     FocusableButton(
@@ -252,26 +259,16 @@ extension _VideoPlayerBuildMethods on VideoPlayerScreenState {
                       });
                     }
 
-                    VoidCallback? onNext;
-                    if (widget.isLive) {
-                      onNext = _hasNextChannel ? () => _switchLiveChannel(1) : null;
-                    } else {
-                      // _playNext no-ops while a navigation is in flight; matching that here
-                      // keeps the control from looking live while it does nothing.
-                      onNext = (_episode.next != null && !_episode.isLoadingNext && authority.canNavigateMediaItems)
-                          ? _playNext
-                          : null;
-                    }
-
-                    VoidCallback? onPrevious;
-                    if (widget.isLive) {
-                      onPrevious = _hasPreviousChannel ? () => _switchLiveChannel(-1) : null;
-                    } else {
-                      final canRestartOrPrevious = _currentMetadata.isEpisode || _episode.previous != null;
-                      onPrevious = (canRestartOrPrevious && authority.canNavigateMediaItems)
-                          ? _restartOrPlayPrevious
-                          : null;
-                    }
+                    // The screen answers next/previous once for every entry
+                    // point; the buttons add only the in-flight and room
+                    // authority gates so a control cannot look live while it
+                    // does nothing. Live TV is never room-bound, and its zap
+                    // debounces itself through the transition gate.
+                    final canNavigateItems = widget.isLive || authority.canNavigateMediaItems;
+                    final onNext = _hasNextItem && !_episode.isLoadingNext && canNavigateItems
+                        ? _navigateToNextItem
+                        : null;
+                    final onPrevious = _hasPreviousItem && canNavigateItems ? _navigateToPreviousItem : null;
 
                     final sourceAudioTracks = _currentMediaInfo?.audioTracks ?? const <MediaAudioTrack>[];
                     final sourceSubtitleSidecars = _sourceSubtitleSidecarsForControls();

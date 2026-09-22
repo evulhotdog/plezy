@@ -3,6 +3,17 @@ part of '../../plex_client.dart';
 const _favoriteChannelsUrl = 'https://epg.provider.plex.tv/settings/favoriteChannels';
 const _providerVersionHeader = {'X-Plex-Provider-Version': '5.1'};
 
+/// What a successful tune yields; see [_PlexLiveTvClientMethods._tuneChannel].
+typedef _PlexTuneResult = ({
+  PlexMetadataDto metadata,
+  String sessionPath,
+  String sessionIdentifier,
+  CaptureBuffer? captureBuffer,
+  int? beginsAt,
+  int? partId,
+  List<MediaSubtitleTrack> subtitleTracks,
+});
+
 mixin _PlexLiveTvClientMethods on _PlexClientInternals implements LiveTvSupport, LiveTvDvrSupport {
   PlexConfig get config;
 
@@ -10,15 +21,18 @@ mixin _PlexLiveTvClientMethods on _PlexClientInternals implements LiveTvSupport,
 
   PlexMetadataDto _createTaggedMetadata(Map<String, dynamic> json);
 
-  /// POST the tune endpoint with one retry on transient HTTP failure.
+  /// POST the tune endpoint, retrying once on a connection error — the
+  /// request most likely never reached the server (a dead pooled socket). A
+  /// timeout is never replayed: the server may already be tuning, and a
+  /// second tune can claim a second tuner.
   Future<MediaServerResponse> _postTuneWithRetry(String path, String sessionIdentifier) async {
     final query = {'X-Plex-Session-Identifier': sessionIdentifier};
     try {
-      return await _http.post(path, queryParameters: query, timeout: MediaServerTimeouts.tune);
+      return await _http.post(path, queryParameters: query, timeout: MediaServerTimeouts.tuneTransport);
     } on MediaServerHttpException catch (e) {
-      if (!e.isTransient) rethrow;
-      appLogger.w('Tune channel: transient failure, retrying once', error: e);
-      return await _http.post(path, queryParameters: query, timeout: MediaServerTimeouts.tune);
+      if (e.type != MediaServerHttpErrorType.connectionError) rethrow;
+      appLogger.w('Tune channel: connection failed, retrying once', error: e);
+      return await _http.post(path, queryParameters: query, timeout: MediaServerTimeouts.tuneTransport);
     }
   }
 
@@ -457,7 +471,12 @@ mixin _PlexLiveTvClientMethods on _PlexClientInternals implements LiveTvSupport,
   }
 
   @override
-  Future<MediaSubscription?> updateRecordingRule(String subscriptionId, Map<String, Object?> prefs) async {
+  Future<MediaSubscription?> updateRecordingRule(
+    String subscriptionId,
+    Map<String, Object?> prefs, {
+    void Function()? checkCurrent,
+  }) async {
+    checkCurrent?.call();
     final response = await _http.put(
       '/media/subscriptions/$subscriptionId',
       queryParameters: _prefQuery('prefs', prefs),
@@ -521,18 +540,7 @@ mixin _PlexLiveTvClientMethods on _PlexClientInternals implements LiveTvSupport,
   /// POSTs to the tune endpoint and extracts metadata, session info, and
   /// capture buffer data from the response. Call [_buildLiveStreamPath] after
   /// to build the actual stream URL (with optional offset for time-shift).
-  Future<
-    ({
-      PlexMetadataDto metadata,
-      String sessionPath,
-      String sessionIdentifier,
-      CaptureBuffer? captureBuffer,
-      int? beginsAt,
-      int? partId,
-      List<MediaSubtitleTrack> subtitleTracks,
-    })?
-  >
-  _tuneChannel(String dvrKey, String channelIdentifier) async {
+  Future<_PlexTuneResult?> _tuneChannel(String dvrKey, String channelIdentifier) async {
     try {
       final sessionIdentifier = PlexClient.generateSessionIdentifier();
 
@@ -698,12 +706,17 @@ mixin _PlexLiveTvClientMethods on _PlexClientInternals implements LiveTvSupport,
   /// [burnSubtitle] asks the transcoder to burn the part's server-selected
   /// subtitle stream into the video; the caller must have confirmed that
   /// selection first (see [_PlexLiveTvPlaybackSession._confirmBurnSelection]).
-  /// [preset] is the viewer's quality ceiling. Original leaves the server free
-  /// to remux (`directStream=1`, no ceiling); a capped preset forces an encode
-  /// at that bitrate/resolution, the same way the library path does. Without a
-  /// client ceiling a remote session lands on the server's own top transcode
-  /// tier, because a live source has no bitrate the server can verify against
-  /// its remote-stream limit (issue #2072).
+  /// [preset] is the viewer's quality ceiling, not a request to re-encode:
+  /// every preset asks for a remux (`directStream=1`, video and audio copy)
+  /// and a capped one adds the bitrate ceiling as a client-profile limitation
+  /// plus the encode resolution/quality, so the server copies a channel that
+  /// already fits and encodes only one that does not — the same call
+  /// MediaBrowser Live TV leaves to its server (#2306/#2307). Pinning
+  /// `directStream=0` under a cap turned a free `copy/copy` remux of an
+  /// already-1080p channel into a 0.40x re-encode that could not hold the
+  /// live edge. Without a client ceiling a remote session lands on the
+  /// server's own top transcode tier, because a live source has no bitrate
+  /// the server can verify against its remote-stream limit (issue #2072).
   Future<String?> _buildLiveStreamPath({
     required String sessionPath,
     required String sessionIdentifier,
@@ -728,7 +741,7 @@ mixin _PlexLiveTvClientMethods on _PlexClientInternals implements LiveTvSupport,
         // (`directStream=1`), not direct play — the Generic profile has no
         // direct-play entry for hls/mpegts and the server says so in its MDE.
         'directPlay': '0',
-        'directStream': directStream && isOriginal ? '1' : '0',
+        'directStream': directStream ? '1' : '0',
         'subtitleSize': '100',
         'audioBoost': '100',
         'location': 'lan',
@@ -757,10 +770,13 @@ mixin _PlexLiveTvClientMethods on _PlexClientInternals implements LiveTvSupport,
         'Accept-Language': 'en',
         'X-Plex-Session-Identifier': sessionIdentifier,
         'X-Plex-Client-Profile-Extra': _buildPlexHlsClientProfileExtra(
-          // A capped preset pins `directStream=0`, so every codec in the target
-          // becomes an *encode* output. HEVC must not be one in an mpegts
-          // target (issue #1859), hence the h264-only TS target; the live
-          // target's hevc/mpeg2video entries are copy codecs for Original only.
+          // With the ceiling expressed as a limitation, the codecs in the
+          // target are copy *and* encode outputs. HEVC must never be an encode
+          // output in an mpegts target (issue #1859), so a capped preset —
+          // where the ceiling can force an encode — keeps the h264-only TS
+          // target and gives up HEVC/MPEG-2 copy; Original, which the server
+          // only encodes when the codec is unplayable, keeps the broadcast
+          // copy codecs.
           videoTranscodeTarget: isOriginal ? _plexHlsLiveVideoTranscodeTarget : _plexHlsVodTsVideoTranscodeTarget,
           maxVideoBitrateKbps: isOriginal ? null : preset.videoBitrateKbps,
         ),
@@ -835,7 +851,7 @@ mixin _PlexLiveTvClientMethods on _PlexClientInternals implements LiveTvSupport,
 
   /// Get favorite channels from the Plex cloud.
   @override
-  Future<List<FavoriteChannel>> fetchFavoriteChannels() async {
+  Future<List<FavoriteChannel>> fetchFavoriteChannels({bool migrate = true, void Function()? checkCurrent}) async {
     final response = await _http.get(_favoriteChannelsUrl, headers: _providerVersionHeader);
     _throwIfFailed(response);
     final container = _getMediaContainer(response);
@@ -852,7 +868,8 @@ mixin _PlexLiveTvClientMethods on _PlexClientInternals implements LiveTvSupport,
 
   /// Update favorite channels on the Plex cloud.
   @override
-  Future<void> setFavoriteChannels(List<FavoriteChannel> channels) async {
+  Future<void> setFavoriteChannels(List<FavoriteChannel> channels, {void Function()? checkCurrent}) async {
+    checkCurrent?.call();
     try {
       await _expectOk(
         () => _http.put(
@@ -966,6 +983,10 @@ class _PlexLiveTvPlaybackSession implements LiveTvPlaybackSession {
   /// Tune [channelKey] on [dvrKey]. The stream URL is built lazily via
   /// [streamUrlAt] so a watch-from-start decision between tune and first
   /// open doesn't cost an extra transcode-decision round-trip.
+  ///
+  /// The caller waits [MediaServerTimeouts.tune]; the tune itself runs on,
+  /// and a tune that answers after the caller gave up is discarded rather than
+  /// left holding a tuner until the server's idle expiry (#2394).
   static Future<_PlexLiveTvPlaybackSession?> start(
     PlexClient client, {
     required String dvrKey,
@@ -974,28 +995,43 @@ class _PlexLiveTvPlaybackSession implements LiveTvPlaybackSession {
     bool directStream = true,
     bool directStreamAudio = true,
   }) async {
-    final tuneResult = await client._tuneChannel(dvrKey, channelKey);
-    if (tuneResult == null) return null;
+    _PlexLiveTvPlaybackSession? fromTune(_PlexTuneResult? tuneResult) => tuneResult == null
+        ? null
+        : _PlexLiveTvPlaybackSession._(
+            client,
+            dvrKey,
+            channelKey,
+            tuneResult.sessionPath,
+            tuneResult.sessionIdentifier,
+            PlexClient.generateSessionIdentifier(),
+            tuneResult.partId,
+            directStream,
+            directStreamAudio,
+            quality,
+            program: LiveProgramInfo(
+              id: tuneResult.metadata.ratingKey,
+              durationMs: tuneResult.metadata.duration,
+              beginsAt: tuneResult.beginsAt,
+            ),
+            captureBuffer: tuneResult.captureBuffer,
+            subtitleTracks: tuneResult.subtitleTracks,
+          );
 
-    return _PlexLiveTvPlaybackSession._(
-      client,
-      dvrKey,
-      channelKey,
-      tuneResult.sessionPath,
-      tuneResult.sessionIdentifier,
-      PlexClient.generateSessionIdentifier(),
-      tuneResult.partId,
-      directStream,
-      directStreamAudio,
-      quality,
-      program: LiveProgramInfo(
-        id: tuneResult.metadata.ratingKey,
-        durationMs: tuneResult.metadata.duration,
-        beginsAt: tuneResult.beginsAt,
-      ),
-      captureBuffer: tuneResult.captureBuffer,
-      subtitleTracks: tuneResult.subtitleTracks,
-    );
+    try {
+      final tuneResult = await client
+          ._tuneChannel(dvrKey, channelKey)
+          .timeoutReleasingLate(
+            MediaServerTimeouts.tune,
+            operation: 'Plex tune',
+            releaseLate: (lateTune) async {
+              await fromTune(lateTune)?.discard();
+            },
+          );
+      return fromTune(tuneResult);
+    } on TimeoutException catch (e) {
+      appLogger.w('Tune channel: no answer in time', error: e);
+      return null;
+    }
   }
 
   @override
@@ -1070,6 +1106,17 @@ class _PlexLiveTvPlaybackSession implements LiveTvPlaybackSession {
       duration: duration,
       playbackTime: positionMs,
     );
+  }
+
+  /// A stopped timeline for the tune's session releases the tuner instead of
+  /// leaving it to the server's idle expiry.
+  @override
+  Future<void> discard() async {
+    try {
+      await reportTimeline(state: 'stopped', positionMs: 0, durationMs: program.durationMs ?? 0);
+    } catch (error, stackTrace) {
+      appLogger.d('Failed to stop a discarded Plex live session', error: error, stackTrace: stackTrace);
+    }
   }
 
   @override

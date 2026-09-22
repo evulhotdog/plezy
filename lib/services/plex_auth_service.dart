@@ -151,7 +151,6 @@ class PlexAuthService {
     return false;
   }
 
-  /// Create a PIN for authentication
   Future<Map<String, dynamic>> createPin() async {
     final response = await _http.post(
       '$_plexApiBase/pins?strong=true',
@@ -262,7 +261,6 @@ class PlexAuthService {
     return servers;
   }
 
-  /// Get user information
   Future<Map<String, dynamic>> getUserInfo(String authToken) async {
     final response = await _getUser(authToken);
     _checkStatus(response);
@@ -299,7 +297,6 @@ class PlexAuthService {
     return getAccountPreferences(authToken);
   }
 
-  /// Get home users for the authenticated user
   Future<PlexHome> getHomeUsers(String authToken) async {
     final response = await _getClientsApi('/home/users', headers: _getCommonHeaders(authToken: authToken));
     _checkStatus(response);
@@ -380,15 +377,22 @@ class PlexServer {
 
     final List<dynamic> connectionsJson = json['connections'] as List<dynamic>;
     final connections = <PlexConnection>[];
+    // [toJson] persists the expanded list, so a stored server comes back with
+    // its synthetic fallbacks already in `connections`. Keeping the first of
+    // each equivalent endpoint makes re-expansion idempotent.
+    final seen = <String>{};
+    void addConnection(PlexConnection connection) {
+      if (seen.add(connection._endpointIdentity)) connections.add(connection);
+    }
 
     // Parse connections and generate HTTP fallbacks for HTTPS connections
     for (final c in connectionsJson) {
       try {
         final connection = PlexConnection.fromJson(c as Map<String, dynamic>);
-        connections.add(connection);
+        addConnection(connection);
 
         if (_allowsHttpFallback(connection)) {
-          connections.add(connection.toHttpFallback());
+          addConnection(connection.toHttpFallback());
         }
       } catch (e) {
         // Skip invalid connections rather than failing the entire server
@@ -452,11 +456,13 @@ class PlexServer {
   /// Find the best working connection by testing them
   /// Returns a Stream that emits connections progressively:
   /// 1. First emission: The first connection that responds successfully.
-  ///    Relay is a fallback tier: a relay success is held until every direct
-  ///    candidate has failed, and a cached relay URL gets no head start, so
-  ///    a fast plex.tv relay edge can never beat a working direct endpoint.
+  ///    IPv6 and relay are fallback tiers: an IPv6 success is held until every
+  ///    IPv4 direct candidate has failed, a relay success until every direct
+  ///    candidate has failed, and a cached fallback-tier URL gets no head
+  ///    start, so a fast IPv6 or plex.tv relay edge can never beat a working
+  ///    IPv4 direct endpoint (see [PlexConnection.isIPv6]).
   /// 2. Second emission (optional): The best connection after latency testing
-  /// Priority: local > remote > relay, then HTTPS > HTTP, then lowest latency
+  /// Priority: local > remote > relay, then IPv4 > IPv6, then HTTPS > HTTP, then lowest latency
   /// Tests both plex.direct URI and direct IP for each connection
   /// HTTPS connections are tested first, with HTTP as fallback
   Stream<PlexConnection> findBestWorkingConnection({
@@ -501,7 +507,7 @@ class PlexServer {
       candidates: candidates,
       preferredUrl: preferredUri,
       candidateForUrl: _candidateForUrl,
-      tierOf: (candidate) => candidate.connection.relay ? 1 : 0,
+      tierOf: (candidate) => _raceTier(candidate.connection),
       urlOf: (candidate) => candidate.url,
       displayTypeOf: (candidate) => candidate.connection.displayType,
       failureLogFields: (candidate, result) => {
@@ -572,7 +578,6 @@ class PlexServer {
     }
   }
 
-  /// Update a connection's URI to use the specified URL
   PlexConnection _updateConnectionUrl(PlexConnection connection, String url) {
     // If the URL matches the original URI, return as-is
     if (url == connection.uri) {
@@ -680,7 +685,14 @@ class PlexServer {
       }
     }
 
-    final all = [...httpsLocal, ...httpsRemote, ...httpsRelay, ...httpLocal, ...httpRemote, ...httpRelay];
+    // IPv4 leads each bucket so sequential failover reaches an endpoint every
+    // stack resolves before trying its IPv6 sibling (PlexConnection.isIPv6).
+    final all = [
+      for (final bucket in [httpsLocal, httpsRemote, httpsRelay, httpLocal, httpRemote, httpRelay]) ...[
+        ...bucket.where((c) => !c.connection.isIPv6),
+        ...bucket.where((c) => c.connection.isIPv6),
+      ],
+    ];
 
     // Failover reachability filter. After discovery, failover should stay within
     // endpoint families plausible for the current session: when a remote or relay
@@ -811,14 +823,22 @@ class PlexServer {
         _findLowestLatencyCandidate(relayCandidates);
   }
 
-  /// Find the candidate with lowest latency, preferring HTTPS and plex.direct URI on tie
+  /// Find the candidate with lowest latency, preferring IPv4, HTTPS and plex.direct URI
   _ConnectionCandidate? _findLowestLatencyCandidate(
     List<MapEntry<_ConnectionCandidate, ConnectionTestResult>> entries,
   ) {
     if (entries.isEmpty) return null;
 
-    // Sort by protocol first (HTTPS enables H2 multiplexing), then latency, then URL type
+    // Sort by address family first (IPv6 is unusable by some native stacks,
+    // see PlexConnection.isIPv6), then protocol (HTTPS enables H2
+    // multiplexing), then latency, then URL type
     entries.sort((a, b) {
+      // Prefer IPv4 over IPv6
+      final aIsIPv6 = a.key.connection.isIPv6;
+      final bIsIPv6 = b.key.connection.isIPv6;
+      if (!aIsIPv6 && bIsIPv6) return -1;
+      if (aIsIPv6 && !bIsIPv6) return 1;
+
       // Prefer HTTPS over HTTP
       final aIsHttps = a.key.isHttps;
       final bIsHttps = b.key.isHttps;
@@ -836,6 +856,15 @@ class PlexServer {
     });
 
     return entries.first.key;
+  }
+
+  /// Phase 1 race tier: IPv4 direct endpoints win outright; an IPv6 direct
+  /// success is held until every IPv4 direct probe has failed, and a relay
+  /// success until every direct probe has failed (see [PlexConnection.isIPv6]
+  /// and `raceEndpointCandidates`).
+  static int _raceTier(PlexConnection connection) {
+    if (connection.relay) return 2;
+    return connection.isIPv6 ? 1 : 0;
   }
 
   /// True when the address is a raw IP (no hostname → no reverse proxy → HTTP
@@ -1019,6 +1048,11 @@ class PlexConnection {
     };
   }
 
+  /// Identity used by [PlexServer.fromJson] to drop an endpoint it already
+  /// holds. Metadata is part of it: two rows for the same URL that disagree
+  /// about local/relay/IPv6 are different candidates.
+  String get _endpointIdentity => '$protocol|$address|$port|$uri|$local|$relay|$ipv6';
+
   /// Always return an HTTP URL that points directly at the IP/port combo.
   String get httpDirectUrl {
     final needsBrackets = address.contains(':') && !address.startsWith('[');
@@ -1027,10 +1061,25 @@ class PlexConnection {
   }
 
   String get displayType {
-    if (relay) return 'Relay';
-    if (local) return 'Local';
-    return 'Remote';
+    final base = relay
+        ? 'Relay'
+        : local
+        ? 'Local'
+        : 'Remote';
+    return isIPv6 ? '$base IPv6' : base;
   }
+
+  /// True for an IPv6 endpoint, from Plex's `IPv6` flag or the raw address.
+  ///
+  /// IPv6 endpoints rank below their IPv4 siblings everywhere a candidate is
+  /// ordered. Dart's resolver retries an AAAA-only host without
+  /// `AI_ADDRCONFIG`, so the discovery probe succeeds on a network that has an
+  /// IPv6 prefix but no global IPv6 route; Android's Java resolver does not
+  /// retry, so the native downloader then fails the same host with
+  /// `UnknownHostException`. Preferring IPv4 keeps every stack on an endpoint
+  /// they all resolve while still using IPv6 when nothing else answers.
+  bool get isIPv6 =>
+      ipv6 || InternetAddress.tryParse(PlexServer._normalizedHost(address))?.type == InternetAddressType.IPv6;
 
   PlexNetworkClass get networkClass {
     if (relay) return PlexNetworkClass.relay;

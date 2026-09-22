@@ -8,7 +8,6 @@ import 'package:http/http.dart' as http;
 import 'app_logger.dart';
 import 'future_extensions.dart';
 import 'isolate_helper.dart';
-import 'log_redaction_manager.dart';
 import 'managed_http_client.dart';
 import 'url_utils.dart';
 import '../exceptions/media_server_exceptions.dart';
@@ -400,7 +399,6 @@ class MediaServerHttpClient {
   Uri _resolveUri(String url, Map<String, dynamic>? queryParameters) =>
       _isAbsoluteUrl(url) ? _appendQuery(Uri.parse(url), queryParameters) : _buildUri(url, queryParameters);
 
-  /// Append query parameters to an already-parsed URI.
   Uri _appendQuery(Uri uri, Map<String, dynamic>? queryParameters) {
     if (queryParameters == null || queryParameters.isEmpty) return uri;
     final query = encodeQueryParameters(queryParameters);
@@ -470,7 +468,12 @@ class MediaServerHttpClient {
   }
 
   void _logResponse(String method, Uri uri, int statusCode, int ms) {
-    appLogger.d('$method ${LogRedactionManager.redact(uri.toString())} → $statusCode (${ms}ms)');
+    // Dart builds this message before the level filter sees it, and it runs on
+    // every buffered response. `MemoryAwareLogPrinter` already redacts each
+    // emitted record, so the call site neither needs `redact()` nor should pay
+    // for the interpolation in release, where the line is dropped.
+    if (!debugLoggingEnabled) return;
+    appLogger.d('$method $uri → $statusCode (${ms}ms)');
   }
 }
 

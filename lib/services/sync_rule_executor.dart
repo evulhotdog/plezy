@@ -10,6 +10,7 @@ import '../utils/content_utils.dart';
 import '../utils/connectivity_link_type.dart';
 import '../media/episode_collection.dart';
 import '../utils/global_key_utils.dart';
+import 'connectivity_probe.dart';
 import 'download_manager_service.dart';
 import 'multi_server_manager.dart';
 import 'playlist_items_loader.dart';
@@ -23,8 +24,6 @@ class SyncRuleFilter {
 
 typedef AssociateSyncRuleDownload = Future<void> Function(SyncRuleItem rule, String downloadGlobalKey);
 typedef QueueSyncRuleDownload = Future<bool> Function(MediaItem item, MediaServerClient client, {int mediaIndex});
-
-typedef _ResolvedListRuleItems = ({List<MediaItem> membership, List<MediaItem> candidates});
 
 /// Result of executing a single sync rule.
 class SyncRuleResult {
@@ -89,7 +88,7 @@ class SyncRuleExecutor {
     }
 
     // Read connectivity once for both the WiFi-only gate and the cooldown pick.
-    final List<ConnectivityResult> connectivity = await _readConnectivity();
+    final List<ConnectivityResult> connectivity = await ConnectivityProbe.check();
     if (await DownloadManagerService.shouldBlockDownloadOnCellularWith(connectivity)) {
       appLogger.d('Skipping sync rules — cellular download blocked');
       return [];
@@ -212,14 +211,8 @@ class SyncRuleExecutor {
 
     _isExecuting = true;
     try {
-      final resolved = await _resolveListRuleItems(
-        rule: rule,
-        client: client,
-        clientScopeId: _clientScopeIdFor(client, ServerId(rule.serverId)),
-        profileId: rule.profileId,
-        metadata: metadata,
-      );
-      for (final item in resolved.membership) {
+      final membership = await _resolveListRuleItems(rule: rule, client: client, metadata: metadata);
+      for (final item in membership) {
         final globalKey = buildGlobalKey(ServerId(rule.serverId), item.id);
         if (_isActiveDownload(downloads[globalKey])) {
           await associateDownload(rule, globalKey);
@@ -395,28 +388,29 @@ class SyncRuleExecutor {
     required AssociateSyncRuleDownload associateDownload,
     required QueueSyncRuleDownload queueSingleDownload,
   }) async {
-    final _ResolvedListRuleItems resolved;
+    final List<MediaItem> membership;
     try {
-      resolved = await _resolveListRuleItems(
-        rule: rule,
-        client: client,
-        clientScopeId: clientScopeId,
-        profileId: profileId,
-        metadata: metadata,
-      );
+      membership = await _resolveListRuleItems(rule: rule, client: client, metadata: metadata);
     } catch (e) {
       appLogger.w('Sync rule ${rule.globalKey}: failed to fetch list items: $e');
       return null;
     }
 
-    for (final item in resolved.membership) {
+    for (final item in membership) {
       final globalKey = buildGlobalKey(ServerId(rule.serverId), item.id);
       if (_isActiveDownload(downloads[globalKey])) {
         await associateDownload(rule, globalKey);
       }
     }
 
-    final candidates = resolved.candidates;
+    final candidates = rule.downloadFilter == SyncRuleFilter.unwatched
+        ? await _excludeLocallyWatched(
+            episodes: membership.where((item) => item.isUnwatchedOrInProgress).toList(),
+            serverId: ServerId(rule.serverId),
+            profileId: profileId,
+            clientScopeId: clientScopeId,
+          )
+        : membership;
 
     int queued = 0;
     for (final item in candidates) {
@@ -440,11 +434,9 @@ class SyncRuleExecutor {
     return SyncRuleResult(globalKey: rule.globalKey, title: displayTitle, queuedCount: queued);
   }
 
-  Future<_ResolvedListRuleItems> _resolveListRuleItems({
+  Future<List<MediaItem>> _resolveListRuleItems({
     required SyncRuleItem rule,
     required MediaServerClient client,
-    required String? clientScopeId,
-    required String profileId,
     required Map<String, MediaItem> metadata,
   }) async {
     // Page list calls so long collections/playlists don't truncate at the
@@ -453,27 +445,14 @@ class SyncRuleExecutor {
     final rootItems = rule.targetType == ContentTypes.collection
         ? await _fetchAllCollectionItems(client, rule.ratingKey, source: metadata[rule.globalKey])
         : await _fetchAllPlaylistItems(client, rule.ratingKey);
-    if (rootItems.isEmpty) {
-      return (membership: const <MediaItem>[], candidates: const <MediaItem>[]);
-    }
+    if (rootItems.isEmpty) return const <MediaItem>[];
 
     // Resolve the complete membership for cleanup provenance. The rule's
     // unwatched filter applies only to queueing; watched downloads still
     // belong to the list and must be removable with it.
     final membership = <MediaItem>[];
     await collectListLeaves(client, rootItems, unwatchedOnly: false, out: membership);
-    if (rule.downloadFilter != SyncRuleFilter.unwatched) {
-      return (membership: membership, candidates: membership);
-    }
-    final serverUnwatched = <MediaItem>[];
-    await collectListLeaves(client, rootItems, unwatchedOnly: true, out: serverUnwatched);
-    final candidates = await _excludeLocallyWatched(
-      episodes: serverUnwatched,
-      serverId: ServerId(rule.serverId),
-      profileId: profileId,
-      clientScopeId: clientScopeId,
-    );
-    return (membership: membership, candidates: candidates);
+    return membership;
   }
 
   /// Page through every item in a playlist using the shared playlist page size.
@@ -530,13 +509,4 @@ class SyncRuleExecutor {
           p.status == DownloadStatus.downloading ||
           p.status == DownloadStatus.queued ||
           p.status == DownloadStatus.paused);
-
-  Future<List<ConnectivityResult>> _readConnectivity() async {
-    try {
-      return await Connectivity().checkConnectivity();
-    } catch (_) {
-      // connectivity_plus can throw PlatformException on Windows — treat as unknown.
-      return const <ConnectivityResult>[];
-    }
-  }
 }

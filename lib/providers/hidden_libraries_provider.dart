@@ -24,7 +24,6 @@ class HiddenLibrariesProvider extends ChangeNotifier with DisposableChangeNotifi
   /// Check if the provider has completed initialization
   bool get isInitialized => _isInitialized;
 
-  /// Get an unmodifiable copy of hidden library keys
   Set<String> get hiddenLibraryKeys => Set.unmodifiable(_hiddenLibraryKeys);
 
   /// Initialize the provider by loading hidden libraries from storage
@@ -42,36 +41,32 @@ class HiddenLibrariesProvider extends ChangeNotifier with DisposableChangeNotifi
         : storage.getHiddenLibrariesForProfile(scopedProfileId);
   }
 
-  Future<void> _saveToStorage() async {
-    final storage = _storageService ??= await StorageService.getInstance();
-    final scopedProfileId = profileId;
-    if (scopedProfileId == null) {
-      await storage.saveHiddenLibraries(_hiddenLibraryKeys);
-    } else {
-      await storage.saveHiddenLibrariesForProfile(scopedProfileId, _hiddenLibraryKeys);
-    }
-  }
-
   /// Hide a library by its key
   /// Updates both in-memory state and persistent storage
-  Future<void> hideLibrary(String libraryKey) async {
-    if (!_isInitialized) await _initialize();
-    if (!_hiddenLibraryKeys.contains(libraryKey)) {
-      _hiddenLibraryKeys = Set.from(_hiddenLibraryKeys)..add(libraryKey);
-      await _saveToStorage();
-      safeNotifyListeners();
-    }
-  }
+  Future<void> hideLibrary(String libraryKey, {void Function()? checkCurrent}) =>
+      setLibraryHidden(libraryKey, true, checkCurrent: checkCurrent);
 
-  /// Unhide a library by its key
-  /// Updates both in-memory state and persistent storage
-  Future<void> unhideLibrary(String libraryKey) async {
-    if (!_isInitialized) await _initialize();
-    if (_hiddenLibraryKeys.contains(libraryKey)) {
-      _hiddenLibraryKeys = Set.from(_hiddenLibraryKeys)..remove(libraryKey);
-      await _saveToStorage();
-      safeNotifyListeners();
+  Future<void> unhideLibrary(String libraryKey, {void Function()? checkCurrent}) =>
+      setLibraryHidden(libraryKey, false, checkCurrent: checkCurrent);
+
+  Future<void> setLibraryHidden(String libraryKey, bool hidden, {void Function()? checkCurrent}) async {
+    await ensureInitialized();
+    if (isDisposed) return;
+    checkCurrent?.call();
+    if (_hiddenLibraryKeys.contains(libraryKey) == hidden) return;
+    final next = Set<String>.of(_hiddenLibraryKeys);
+    hidden ? next.add(libraryKey) : next.remove(libraryKey);
+    final storage = _storageService!;
+    final scopedProfileId = profileId;
+    if (scopedProfileId == null) {
+      await storage.saveHiddenLibraries(next);
+    } else {
+      await storage.saveHiddenLibrariesForProfile(scopedProfileId, next);
     }
+    if (isDisposed) return;
+    checkCurrent?.call();
+    _hiddenLibraryKeys = next;
+    safeNotifyListeners();
   }
 
   /// Check if a specific library is hidden

@@ -21,7 +21,11 @@ import '../services/external_player_service.dart';
 import '../services/local_playback_history.dart';
 import '../services/offline_watch_sync_service.dart';
 import '../services/settings_service.dart';
+import '../services/playback_launch_observer.dart';
+import '../services/playback_coordinator.dart';
+import '../services/music/music_playback_service.dart';
 import 'app_logger.dart';
+import 'dialogs.dart';
 import 'global_key_utils.dart';
 import 'platform_detector.dart';
 import 'download_version_utils.dart';
@@ -32,18 +36,64 @@ import '../i18n/strings.g.dart';
 
 const String kVideoPlayerRouteName = '/video_player';
 
-/// The route contract shared by VOD and Live TV playback.
+/// One video route per navigator, shared by VOD and Live TV.
 ///
-/// The stable route name drives player lifecycle observation, while the
-/// opaque zero-duration route prevents the underlying detail screen flashing
-/// during player startup and teardown.
-PageRouteBuilder<bool> buildVideoPlayerRoute({required WidgetBuilder builder}) {
-  return PageRouteBuilder<bool>(
-    settings: const RouteSettings(name: kVideoPlayerRouteName),
-    pageBuilder: (context, _, _) => builder(context),
-    transitionDuration: Duration.zero,
-    reverseTransitionDuration: Duration.zero,
-  );
+/// Commit through [push], not Navigator.push: a covered player still owns the
+/// native channel and must leave before another playback can take ownership.
+class VideoPlayerRoute extends PageRouteBuilder<bool> {
+  VideoPlayerRoute({required WidgetBuilder builder, this.watchTogetherLease})
+    : super(
+        settings: const RouteSettings(name: kVideoPlayerRouteName),
+        pageBuilder: (context, _, _) => builder(context),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      );
+
+  // Reserve at route commit, not screen initState: another launch can arrive
+  // before the first frame. Navigator identity also isolates profile sessions.
+  static final _activeRoutes = Expando<VideoPlayerRoute>();
+  bool get isReplacingWithVideo => _isReplacingWithVideo;
+  bool _isReplacingWithVideo = false;
+  final WatchPlaybackLease? watchTogetherLease;
+
+  /// Consult the committed successor, not just the first replacement: several
+  /// launches can commit before the outgoing screen is disposed.
+  WatchPlaybackLease? get replacementWatchTogetherLease {
+    final owner = navigator;
+    if (!_isReplacingWithVideo || owner == null) return null;
+    final successor = _activeRoutes[owner];
+    return successor != this && successor?.isActive == true ? successor?.watchTogetherLease : null;
+  }
+
+  Future<bool?> push(NavigatorState navigator, {bool replaceCurrent = false}) {
+    final previous = _activeRoutes[navigator];
+    final replacingVideo = previous != null && previous.isActive;
+    if (replacingVideo) {
+      previous._isReplacingWithVideo = true;
+      dismissDialogsOwnedBy(previous);
+    }
+
+    final Future<bool?> result;
+    if (replacingVideo && !previous.isCurrent) {
+      // Unrelated covering routes are not part of the player session.
+      // Remove the exact old player, then put the new one above the cover.
+      navigator.removeRoute(previous, true);
+      result = navigator.push<bool>(this);
+    } else if (replacingVideo || replaceCurrent) {
+      result = navigator.pushReplacement<bool, bool>(this, result: true);
+    } else {
+      result = navigator.push<bool>(this);
+    }
+    _activeRoutes[navigator] = this;
+    return result;
+  }
+
+  @override
+  void dispose() {
+    final owner = navigator;
+    if (owner != null && identical(_activeRoutes[owner], this)) _activeRoutes[owner] = null;
+    super.dispose();
+  }
 }
 
 enum VideoPlayerRouteKind { vod, liveTv }
@@ -88,14 +138,6 @@ final class VideoPlayerLaunchIdentity {
   int get hashCode => Object.hash(globalKey, mediaIndex, mediaSourceId, selectedQualityPreset, isOffline, routeKind);
 }
 
-class VideoPlayerNavigationInFlightGuard {
-  final Set<VideoPlayerLaunchIdentity> _identities = <VideoPlayerLaunchIdentity>{};
-
-  bool tryStart(VideoPlayerLaunchIdentity identity) => _identities.add(identity);
-
-  void finish(VideoPlayerLaunchIdentity identity) => _identities.remove(identity);
-}
-
 class VideoPlayerActiveRouteGuard {
   Object? _owner;
   VideoPlayerLaunchIdentity? _identity;
@@ -125,16 +167,9 @@ class VideoPlayerActiveRouteGuard {
   }
 }
 
-final _videoPlayerNavigationInFlightGuard = VideoPlayerNavigationInFlightGuard();
-
-class WatchTogetherPlaybackNavigationException implements Exception {
-  final String message;
-
-  const WatchTogetherPlaybackNavigationException(this.message);
-
-  @override
-  String toString() => message;
-}
+/// Launch identities currently between the duplicate check and the route
+/// push; a second launch of the same identity in that window is dropped.
+final _inFlightLaunches = <VideoPlayerLaunchIdentity>{};
 
 /// Series (keyed by grandparent) or standalone-item key under
 /// [SettingsService.mediaVersionPreferences], scoped by server — raw Plex
@@ -174,8 +209,10 @@ Future<void> saveMediaVersionPreferenceFor(
   MediaItem metadata, {
   required int index,
   required List<MediaVersion> versions,
+  void Function()? checkCurrent,
 }) async {
   final settingsService = await SettingsService.getInstance();
+  checkCurrent?.call();
   final pref = index >= 0 && index < versions.length
       ? MediaVersionPreference.forVersion(versions[index], index)
       : MediaVersionPreference(index: index, updatedAt: DateTime.now().millisecondsSinceEpoch);
@@ -183,6 +220,15 @@ Future<void> saveMediaVersionPreferenceFor(
     ..remove(_legacyMediaVersionPreferenceKey(metadata))
     ..[_mediaVersionPreferenceKey(metadata)] = pref;
   await settingsService.write(SettingsService.mediaVersionPreferences, _pruneMediaVersionPreferences(updated));
+}
+
+Future<void> resetSavedMediaVersionPreferenceFor(MediaItem metadata, {void Function()? checkCurrent}) async {
+  final settingsService = await SettingsService.getInstance();
+  checkCurrent?.call();
+  final updated = {...settingsService.read(SettingsService.mediaVersionPreferences)}
+    ..remove(_legacyMediaVersionPreferenceKey(metadata))
+    ..remove(_mediaVersionPreferenceKey(metadata));
+  await settingsService.write(SettingsService.mediaVersionPreferences, updated);
 }
 
 Map<String, MediaVersionPreference> _pruneMediaVersionPreferences(Map<String, MediaVersionPreference> prefs) {
@@ -252,13 +298,18 @@ Future<bool?> navigateToVideoPlayer(
   bool resolveWatchState = true,
   WatchPlaybackLease? watchTogetherLease,
   bool Function()? isLaunchCurrent,
+  Duration? initialPosition,
+  bool strictMediaSelection = false,
+  bool explicitStartPolicy = false,
+  PlaybackLaunchObserver? launchObserver,
 }) async {
   if (!isOffline && watchTogetherLease == null) {
     final watchTogether = context.read<WatchTogetherProvider?>();
     watchTogetherLease = watchTogether?.capturePlaybackLease(selection: watchTogether.isHost);
   }
   final playbackLease = watchTogetherLease;
-  bool launchCurrent() => (isLaunchCurrent?.call() ?? true) && (playbackLease?.isCurrent ?? true);
+  bool launchCurrent() =>
+      (isLaunchCurrent?.call() ?? true) && (launchObserver?.isCurrent ?? true) && (playbackLease?.isCurrent ?? true);
   if (!launchCurrent()) return null;
   if (resolveWatchState) {
     metadata = context.readFreshWatchState(metadata);
@@ -266,6 +317,7 @@ Future<bool?> navigateToVideoPlayer(
   final navigator = Navigator.of(context);
   final sourceRoute = ModalRoute.of(context);
   final downloadProvider = context.read<DownloadProvider>();
+  final launchMusic = launchObserver == null ? null : context.read<MusicPlaybackService>();
   // Use the manager-routed lookup so Jellyfin items don't trip the
   // Plex-only client. The player branches on the returned type internally.
   final manager = context.read<MultiServerProvider>().serverManager;
@@ -313,7 +365,7 @@ Future<bool?> navigateToVideoPlayer(
   );
   var markedInFlight = false;
   if (!usePushReplacement) {
-    markedInFlight = _videoPlayerNavigationInFlightGuard.tryStart(launchIdentity);
+    markedInFlight = _inFlightLaunches.add(launchIdentity);
     if (!markedInFlight) {
       appLogger.d(
         'Video player navigation already in flight for ${metadata.id} (mediaIndex=$mediaIndex), '
@@ -338,43 +390,43 @@ Future<bool?> navigateToVideoPlayer(
         final settingsService = SettingsService.instanceOrNull ?? await SettingsService.getInstance();
         if (!launchCurrent()) return null;
         if (settingsService.read(SettingsService.useExternalPlayer)) {
-          bool launched = false;
-
+          if (launchObserver != null &&
+              (initialPosition != null || strictMediaSelection || explicitStartPolicy || playbackLease != null)) {
+            launchObserver.mark('blocked', blocker: 'externalPlayerOptionsUnsupported');
+            return null;
+          }
+          String? videoUrl;
           if (isOffline) {
-            final globalKey = metadata.globalKey;
             final videoPath = await downloadProvider.getVideoFilePath(
-              globalKey,
+              metadata.globalKey,
               mediaIndex: mediaIndex,
               mediaSourceId: mediaSourceId,
             );
             if (!launchCurrent()) return null;
-            if (videoPath != null && context.mounted) {
-              final videoUrl = videoPath.contains('://') ? videoPath : 'file://$videoPath';
-              launched = await ExternalPlayerService.launch(
-                context: context,
-                videoUrl: videoUrl,
-                metadata: metadata,
-                client: mediaClient,
-                offlineWatchService: offlineWatchService,
-                mediaIndex: mediaIndex,
-                mediaSourceId: mediaSourceId,
-              );
-            }
-          } else if (context.mounted) {
+            if (videoPath != null) videoUrl = videoPath.contains('://') ? videoPath : 'file://$videoPath';
+          }
+          // An offline item with no local file falls through to the built-in player.
+          var launched = false;
+          if ((!isOffline || videoUrl != null) && context.mounted) {
             launched = await ExternalPlayerService.launch(
               context: context,
+              videoUrl: videoUrl,
               metadata: metadata,
               client: mediaClient,
               offlineWatchService: offlineWatchService,
               mediaIndex: mediaIndex,
               mediaSourceId: mediaSourceId,
+              isLaunchCurrent: launchCurrent,
+              onHandoffPending: () => launchObserver?.mark('blocked', blocker: 'externalHandoffPending'),
+              onLaunched: () => launchObserver?.mark('externalLaunched'),
             );
           }
 
           if (launched) {
+            launchObserver?.mark('externalLaunched');
             // External playback never reaches the in-player session commit, so
             // record the local last-played history here.
-            if (!isOffline) unawaited(LocalPlaybackHistory.recordPlayback(metadata));
+            if (!isOffline && launchCurrent()) unawaited(LocalPlaybackHistory.recordPlayback(metadata));
             return null;
           }
         }
@@ -401,8 +453,13 @@ Future<bool?> navigateToVideoPlayer(
       return null;
     }
     if (!launchCurrent()) return null;
+    if (launchObserver != null && (PlaybackCoordinator.instance.hasVideoSession || launchMusic?.currentTrack != null)) {
+      launchObserver.mark('blocked', blocker: 'playbackActive');
+      return null;
+    }
 
-    final route = buildVideoPlayerRoute(
+    final route = VideoPlayerRoute(
+      watchTogetherLease: playbackLease,
       builder: (_) => VideoPlayerScreen(
         metadata: metadata,
         preferredAudioTrack: preferredAudioTrack,
@@ -414,14 +471,17 @@ Future<bool?> navigateToVideoPlayer(
         selectedQualityPreset: selectedQualityPreset,
         isOffline: isOffline,
         watchTogetherLease: playbackLease,
+        initialPosition: initialPosition,
+        strictMediaSelection: strictMediaSelection,
+        isLaunchCurrent: isLaunchCurrent,
+        launchObserver: launchObserver,
       ),
     );
 
-    pushFuture = usePushReplacement ? navigator.pushReplacement<bool, bool>(route) : navigator.push<bool>(route);
+    pushFuture = route.push(navigator, replaceCurrent: usePushReplacement);
+    launchObserver?.mark('opening');
   } finally {
-    if (markedInFlight) {
-      _videoPlayerNavigationInFlightGuard.finish(launchIdentity);
-    }
+    if (markedInFlight) _inFlightLaunches.remove(launchIdentity);
   }
   return pushFuture;
 }
@@ -568,14 +628,10 @@ Future<bool> navigateToWatchTogetherPlayback(
   final multiServer = context.read<MultiServerProvider>();
   final client = multiServer.getClientForServer(serverId);
 
-  if (client == null) {
-    throw const WatchTogetherPlaybackNavigationException('Watch Together server is unavailable');
-  }
+  if (client == null) throw StateError('Watch Together server is unavailable');
 
   final metadata = await client.fetchItem(ratingKey);
-  if (metadata == null) {
-    throw const WatchTogetherPlaybackNavigationException('Current Watch Together media is unavailable');
-  }
+  if (metadata == null) throw StateError('Current Watch Together media is unavailable');
 
   if (!context.mounted) return false;
 

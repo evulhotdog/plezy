@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:plezy/exceptions/media_server_exceptions.dart';
+import 'package:plezy/i18n/strings.g.dart';
 import 'package:plezy/media/media_backend.dart';
 import 'package:plezy/media/media_item.dart';
 import 'package:plezy/media/media_kind.dart';
@@ -23,10 +25,6 @@ import '../test_helpers/media_items.dart';
 // initialized SettingsService.
 //
 // Coverage:
-//   - `cacheExternalSubtitles` / `lastExternalSubtitles` replacement behavior.
-//   - `addExternalSubtitles` invokes the player's addSubtitleTrack for each
-//     entry with a non-null URI, preserves order, and silently swallows errors
-//     thrown by the player.
 //   - `cycleSubtitleTrack` / `cycleAudioTrack` are no-ops when the player has
 //     fewer than 2 real tracks (early-return paths).
 //   - `applyTrackSelectionWhenReady` waits for subtitle tracks when server
@@ -34,28 +32,24 @@ import '../test_helpers/media_items.dart';
 //   - `applyTrackSelection` awaits one audio/subtitle application on its
 //     captured player and reports failure or stale-owner cancellation.
 //   - `dispose` is idempotent (timers/subscriptions cleared).
+//   - `onAudioTrackChanged` / `onSubtitleTrackChanged` server sync through the
+//     persister and memory-enabler seams: which stream id is written, and when
+//     the user is told a pick is session-only (unmatched/unaddressable source,
+//     server refusal, an account that cannot remember picks) — once per item.
 //
 // What's NOT covered:
 //   - Most `applyTrackSelection` selection permutations — the matching logic
 //     itself lives in [TrackSelectionService] and is covered there.
-//   - `onAudioTrackChanged` / `onSubtitleTrackChanged` — server-sync paths
-//     require a fully-faked PlexClient and MediaSourceInfo with realistic
-//     stream IDs. The matching logic itself lives in [TrackSelectionService]
-//     and is covered there.
 //   - `onBackendSwitched` — wraps applyTrackSelectionWhenReady and is
 //     therefore gated on the same SettingsService dependency.
-//   - `resumeAfterSubtitleLoad` — schedules a real wall-clock fallback Timer.
 
-MediaItem _meta({String id = 'rk1'}) => testMediaItem(id: id, backend: MediaBackend.plex, kind: MediaKind.movie);
+MediaItem _meta() => testMediaItem(id: 'rk1', backend: MediaBackend.plex, kind: MediaKind.movie);
 
 /// Player that records calls and can be configured per-test.
 class _FakePlayer with PlayerStreamControllersMixin implements Player {
   PlayerState _state;
-  _FakePlayer({
-    Tracks tracks = const Tracks(),
-    TrackSelection track = const TrackSelection(),
-    this.attachesExternalSubtitlesAtOpen = false,
-  }) : _state = PlayerState(tracks: tracks, track: track);
+  _FakePlayer({Tracks tracks = const Tracks(), TrackSelection track = const TrackSelection()})
+    : _state = PlayerState(tracks: tracks, track: track);
 
   @override
   PlayerState get state => _state;
@@ -66,12 +60,7 @@ class _FakePlayer with PlayerStreamControllersMixin implements Player {
   PlayerStreams get streams => _streams;
 
   @override
-  final bool attachesExternalSubtitlesAtOpen;
-
-  bool isDisposed = false;
-
-  @override
-  bool get disposed => isDisposed;
+  bool get disposed => false;
 
   set tracks(Tracks t) {
     _state = _state.copyWith(tracks: t);
@@ -83,20 +72,14 @@ class _FakePlayer with PlayerStreamControllersMixin implements Player {
   }
 
   // ── Recording surface ────────────────────────────────────────────
-  final List<({String uri, String? title, String? language, bool select})> addSubtitleCalls = [];
   final List<AudioTrack> selectedAudio = [];
   final List<SubtitleTrack> selectedSubtitle = [];
   final List<double> rates = [];
 
   final List<Media> openedMedia = [];
 
-  /// If non-null and >0, fail this many addSubtitleTrack calls before succeeding.
-  int failAddSubtitleTimes = 0;
-  Future<void> Function(String uri)? onAddSubtitleTrack;
   Object? selectAudioError;
-  Object? selectSubtitleError;
   Future<void> Function(AudioTrack track)? onSelectAudioTrack;
-  Future<void> Function(SubtitleTrack track)? onSelectSubtitleTrack;
 
   @override
   Future<void> open(
@@ -110,16 +93,6 @@ class _FakePlayer with PlayerStreamControllersMixin implements Player {
   }
 
   @override
-  Future<void> addSubtitleTrack({required String uri, String? title, String? language, bool select = false}) async {
-    if (failAddSubtitleTimes > 0) {
-      failAddSubtitleTimes--;
-      throw StateError('simulated addSubtitleTrack failure');
-    }
-    addSubtitleCalls.add((uri: uri, title: title, language: language, select: select));
-    await onAddSubtitleTrack?.call(uri);
-  }
-
-  @override
   Future<void> selectAudioTrack(AudioTrack t) async {
     selectedAudio.add(t);
     await onSelectAudioTrack?.call(t);
@@ -129,8 +102,6 @@ class _FakePlayer with PlayerStreamControllersMixin implements Player {
   @override
   Future<void> selectSubtitleTrack(SubtitleTrack t) async {
     selectedSubtitle.add(t);
-    await onSelectSubtitleTrack?.call(t);
-    if (selectSubtitleError case final error?) throw error;
   }
 
   @override
@@ -156,20 +127,23 @@ TrackManager _make({
   required _FakePlayer player,
   MediaItem? metadata,
   MediaSourceInfo? mediaInfo,
-  bool active = true,
   bool Function()? isActive,
   Future<void> Function()? waitForProfileSettings,
   AudioTrack? preferredAudioTrack,
   SubtitleTrack? preferredSubtitleTrack,
   void Function(String, {Duration? duration})? showMessage,
   TrackPreferencePersister? persister,
+  // The MediaBrowser shape: no per-part persister, picks ride the progress
+  // reports and only the account flag is settled here.
+  TrackSelectionMemoryEnabler? memoryEnabler,
   bool primarySubtitleIsServerRendered = false,
   SubtitleTrack? preferredSecondarySubtitleTrack,
 }) {
   return TrackManager(
     player: player,
-    isActive: isActive ?? () => active,
-    persistTrackPreference: persister ?? _noopPersister,
+    isActive: isActive ?? () => true,
+    persistTrackPreference: memoryEnabler != null ? null : persister ?? _noopPersister,
+    enableTrackSelectionMemory: memoryEnabler,
     getProfileSettings: () => null,
     waitForProfileSettings: waitForProfileSettings ?? () async {},
     metadata: metadata ?? _meta(),
@@ -213,160 +187,32 @@ MediaSourceInfo _silentBurnedMediaInfo() {
   );
 }
 
+/// Like [_mediaInfoWithSubtitles] but with the part id the server-side track
+/// writes address.
+MediaSourceInfo _writableMediaInfo({bool selected = false}) {
+  return MediaSourceInfo(
+    videoUrl: 'https://example.com/video.mp4',
+    partId: 4242,
+    audioTracks: [MediaAudioTrack(id: 1, language: 'English', languageCode: 'eng', selected: true)],
+    subtitleTracks: [
+      MediaSubtitleTrack(id: 10, language: 'English', languageCode: 'eng', selected: selected, forced: false),
+    ],
+    chapters: const [],
+  );
+}
+
 Future<void> _drainAsync() async {
   for (var i = 0; i < 5; i++) {
     await Future<void>.delayed(Duration.zero);
   }
 }
 
-Future<void> _noopPersister({required int partId, required String trackType, required int streamID}) async {}
+Future<bool> _noopPersister({required int partId, required String trackType, required int streamID}) async => true;
 
 void main() {
   // The constructor doesn't touch prefs, but [dispose] / [applyTrackSelection]
   // could leak across tests — reset to be safe.
   setUp(resetSharedPreferencesForTest);
-
-  group('cacheExternalSubtitles', () {
-    test('round-trips through the lastExternalSubtitles getter', () {
-      final mgr = _make(player: _FakePlayer());
-      addTearDown(mgr.dispose);
-
-      expect(mgr.lastExternalSubtitles, isEmpty);
-
-      final subs = [
-        SubtitleTrack.uri('https://example/a.srt', title: 'EN', language: 'eng'),
-        SubtitleTrack.uri('https://example/b.srt', title: 'FR', language: 'fre'),
-      ];
-      mgr.cacheExternalSubtitles(subs);
-      expect(mgr.lastExternalSubtitles, subs);
-
-      // Replacing the cache overwrites it (used during episode navigation).
-      mgr.cacheExternalSubtitles(const []);
-      expect(mgr.lastExternalSubtitles, isEmpty);
-    });
-  });
-
-  group('addExternalSubtitles', () {
-    test('returns immediately on empty input', () async {
-      final player = _FakePlayer();
-      final mgr = _make(player: player);
-      addTearDown(mgr.dispose);
-
-      await mgr.addExternalSubtitles(const []);
-      expect(player.addSubtitleCalls, isEmpty);
-    });
-
-    test('forwards each subtitle with a URI to the player in metadata order', () async {
-      final player = _FakePlayer();
-      final mgr = _make(player: player);
-      addTearDown(mgr.dispose);
-
-      final subs = [
-        SubtitleTrack.uri('https://example/a.srt', title: 'EN', language: 'eng'),
-        SubtitleTrack.uri('https://example/b.srt', title: 'FR', language: 'fre'),
-      ];
-      await mgr.addExternalSubtitles(subs);
-
-      expect(player.addSubtitleCalls, hasLength(2));
-      expect(player.addSubtitleCalls.map((c) => c.uri), ['https://example/a.srt', 'https://example/b.srt']);
-      // None should be auto-selected — manager picks afterwards.
-      expect(player.addSubtitleCalls.every((c) => c.select == false), isTrue);
-    });
-
-    test('does not start the next add until the previous subtitle completes', () async {
-      final player = _FakePlayer();
-      final mgr = _make(player: player);
-      addTearDown(mgr.dispose);
-      final firstCompletes = Completer<void>();
-      addTearDown(() {
-        if (!firstCompletes.isCompleted) firstCompletes.complete();
-      });
-      player.onAddSubtitleTrack = (uri) async {
-        if (uri == 'https://example/a.srt') {
-          await firstCompletes.future;
-        }
-      };
-
-      final addFuture = mgr.addExternalSubtitles([
-        SubtitleTrack.uri('https://example/a.srt', title: 'EN'),
-        SubtitleTrack.uri('https://example/b.srt', title: 'FR'),
-      ]);
-      await _drainAsync();
-
-      expect(player.addSubtitleCalls.map((c) => c.uri), ['https://example/a.srt']);
-
-      firstCompletes.complete();
-      await addFuture;
-
-      expect(player.addSubtitleCalls.map((c) => c.uri), ['https://example/a.srt', 'https://example/b.srt']);
-    });
-
-    test('skips subtitle entries with null URI', () async {
-      final player = _FakePlayer();
-      final mgr = _make(player: player);
-      addTearDown(mgr.dispose);
-
-      // SubtitleTrack default constructor allows uri: null even with
-      // isExternal: true — exercise the where-filter.
-      final subs = const [
-        SubtitleTrack(id: 'no-uri', isExternal: true),
-        SubtitleTrack(id: 'with-uri', isExternal: true, uri: 'https://example/c.srt'),
-      ];
-      await mgr.addExternalSubtitles(subs);
-
-      expect(player.addSubtitleCalls, hasLength(1));
-      expect(player.addSubtitleCalls.single.uri, 'https://example/c.srt');
-    });
-
-    test('selects subtitle sidecars marked as default', () async {
-      final player = _FakePlayer();
-      final mgr = _make(player: player);
-      addTearDown(mgr.dispose);
-
-      const subs = [
-        SubtitleTrack(id: 'selected', uri: 'https://example/selected.srt', isExternal: true, isDefault: true),
-      ];
-      await mgr.addExternalSubtitles(subs);
-
-      expect(player.addSubtitleCalls, hasLength(1));
-      expect(player.addSubtitleCalls.single.select, isTrue);
-    });
-
-    test('a player error on one entry does not prevent others from succeeding', () async {
-      final player = _FakePlayer()..failAddSubtitleTimes = 1;
-      final mgr = _make(player: player);
-      addTearDown(mgr.dispose);
-
-      final subs = [
-        SubtitleTrack.uri('https://example/a.srt', title: 'EN'),
-        SubtitleTrack.uri('https://example/b.srt', title: 'FR'),
-      ];
-      // Should NOT throw — each per-track future has its own try/catch.
-      await mgr.addExternalSubtitles(subs);
-      // One add failed, one succeeded.
-      expect(player.addSubtitleCalls, hasLength(1));
-    });
-
-    test('waits for player readiness before adding subtitles', () async {
-      final player = _FakePlayer();
-      final mgr = _make(player: player);
-      addTearDown(mgr.dispose);
-      final ready = Completer<void>();
-
-      final addFuture = mgr.addExternalSubtitles([
-        SubtitleTrack.uri('https://example/ready.srt', title: 'EN'),
-      ], waitUntilReady: ready.future);
-      await Future<void>.delayed(Duration.zero);
-
-      expect(player.addSubtitleCalls, isEmpty);
-
-      ready.complete();
-      await addFuture;
-
-      expect(player.addSubtitleCalls, hasLength(1));
-      expect(player.addSubtitleCalls.single.uri, 'https://example/ready.srt');
-    });
-  });
 
   group('applyTrackSelectionWhenReady', () {
     test('waits for player subtitle tracks when Plex metadata advertises subtitles', () async {
@@ -1075,6 +921,47 @@ void main() {
       });
     });
 
+    test(
+      'invalidation after a failed open cancels the five-second and deadline fallbacks and applies nothing',
+      () async {
+        await SettingsService.getInstance();
+
+        fakeAsync((async) {
+          final player = _FakePlayer(
+            tracks: const Tracks(
+              audio: [AudioTrack(id: '1', language: 'eng')],
+            ),
+          );
+          final mgr = _make(player: player, mediaInfo: _mediaInfoWithSubtitles(selected: true));
+
+          mgr.applyTrackSelectionWhenReady();
+          expect(player.tracksController.hasListener, isTrue);
+          expect(async.nonPeriodicTimerCount, 1);
+
+          // The open failed: the screen's abort path invalidates before any
+          // fallback fires, and nothing may reach the idle core afterwards.
+          mgr.invalidatePendingSelection();
+
+          expect(player.tracksController.hasListener, isFalse);
+          expect(async.nonPeriodicTimerCount, 0);
+
+          async.elapse(const Duration(seconds: 30));
+          player.emitTracks(
+            const Tracks(
+              audio: [AudioTrack(id: '1', language: 'eng')],
+              subtitle: [SubtitleTrack(id: '10', language: 'eng')],
+            ),
+          );
+          async.flushMicrotasks();
+
+          expect(player.selectedAudio, isEmpty);
+          expect(player.selectedSubtitle, isEmpty);
+          expect(player.rates, isEmpty);
+          mgr.dispose();
+        });
+      },
+    );
+
     test('five-second fallback keeps listening and applies a late advertised subtitle', () async {
       await SettingsService.getInstance();
 
@@ -1366,6 +1253,86 @@ void main() {
       expect(otherPlayer.selectedSubtitle, isEmpty);
     });
 
+    test('an automatic pass writes a carried pick to the server', () async {
+      await SettingsService.getInstance();
+      final player = _FakePlayer(
+        tracks: const Tracks(
+          audio: audioTracks,
+          subtitle: [SubtitleTrack(id: '1', language: 'eng')],
+        ),
+      );
+      final writes = <({String trackType, int streamID})>[];
+      final mgr = _make(
+        player: player,
+        mediaInfo: _writableMediaInfo(),
+        preferredSubtitleTrack: const SubtitleTrack(id: '1', language: 'eng'),
+        persister: ({required int partId, required String trackType, required int streamID}) async {
+          writes.add((trackType: trackType, streamID: streamID));
+          return true;
+        },
+      );
+      addTearDown(mgr.dispose);
+
+      await mgr.applyTrackSelection();
+      // The pass fires the server write without awaiting it.
+      await _drainAsync();
+
+      expect(player.selectedSubtitle.map((track) => track.id), ['1']);
+      expect(writes, [(trackType: 'subtitle', streamID: 10)]);
+    });
+
+    test("an automatic pass never writes the server's own pick back (#2323)", () async {
+      await SettingsService.getInstance();
+      final player = _FakePlayer(
+        tracks: const Tracks(
+          audio: audioTracks,
+          subtitle: [SubtitleTrack(id: '1', language: 'eng')],
+        ),
+      );
+      final writes = <({String trackType, int streamID})>[];
+      final mgr = _make(
+        player: player,
+        mediaInfo: _writableMediaInfo(selected: true),
+        // The open flow hands the resolved row over as the preference even
+        // when the server chose it; only the write-back is gated.
+        preferredSubtitleTrack: const SubtitleTrack(id: '1', language: 'eng'),
+        persister: ({required int partId, required String trackType, required int streamID}) async {
+          writes.add((trackType: trackType, streamID: streamID));
+          return true;
+        },
+      )..persistAutomaticSubtitleSelection = false;
+      addTearDown(mgr.dispose);
+
+      await mgr.applyTrackSelection();
+      await _drainAsync();
+
+      expect(player.selectedSubtitle.map((track) => track.id), ['1']);
+      expect(writes, isEmpty);
+    });
+
+    test('an explicit user pick is written even when automatic write-back is gated', () async {
+      await SettingsService.getInstance();
+      final player = _FakePlayer(
+        tracks: const Tracks(
+          subtitle: [SubtitleTrack(id: '1', language: 'eng')],
+        ),
+      );
+      final writes = <({String trackType, int streamID})>[];
+      final mgr = _make(
+        player: player,
+        mediaInfo: _writableMediaInfo(selected: true),
+        persister: ({required int partId, required String trackType, required int streamID}) async {
+          writes.add((trackType: trackType, streamID: streamID));
+          return true;
+        },
+      )..persistAutomaticSubtitleSelection = false;
+      addTearDown(mgr.dispose);
+
+      await mgr.onSubtitleTrackSelectedByUser(const SubtitleTrack(id: '1', language: 'eng'));
+
+      expect(writes, [(trackType: 'subtitle', streamID: 10)]);
+    });
+
     test('reports player selection failure and does not continue to subtitles', () async {
       await SettingsService.getInstance();
       final player = _FakePlayer(tracks: availableTracks)..selectAudioError = StateError('audio selection failed');
@@ -1629,72 +1596,6 @@ void main() {
     });
   });
 
-  group('onPlaybackRestart', () {
-    test('no-op when not waiting for external subs', () {
-      final mgr = _make(player: _FakePlayer());
-      addTearDown(mgr.dispose);
-
-      // Don't set the waiting flag — onPlaybackRestart should be a pure no-op
-      // and must not call applyTrackSelection (which would touch the player).
-      expect(mgr.waitingForExternalSubsTrackSelection, isFalse);
-      mgr.onPlaybackRestart();
-      // No exception is the contract.
-      expect(mgr.waitingForExternalSubsTrackSelection, isFalse);
-    });
-
-    test('keeps selection pending while external subtitle add is in flight', () async {
-      final player = _FakePlayer();
-      final mgr = _make(player: player);
-      addTearDown(mgr.dispose);
-      final ready = Completer<void>();
-
-      mgr.waitingForExternalSubsTrackSelection = true;
-      final addFuture = mgr.addExternalSubtitles([
-        SubtitleTrack.uri('https://example/pending.srt', title: 'EN'),
-      ], waitUntilReady: ready.future);
-      await Future<void>.delayed(Duration.zero);
-
-      mgr.onPlaybackRestart();
-
-      expect(mgr.waitingForExternalSubsTrackSelection, isTrue);
-      expect(player.addSubtitleCalls, isEmpty);
-
-      ready.complete();
-      await addFuture;
-
-      mgr.onPlaybackRestart();
-
-      expect(mgr.waitingForExternalSubsTrackSelection, isFalse);
-      expect(player.addSubtitleCalls, hasLength(1));
-    });
-  });
-
-  group('onBackendSwitched', () {
-    test('re-adds cached external subtitles for post-open fallback backends', () async {
-      final player = _FakePlayer();
-      final mgr = _make(player: player);
-      addTearDown(mgr.dispose);
-
-      mgr.cacheExternalSubtitles([SubtitleTrack.uri('https://example/fallback.srt', title: 'EN')]);
-
-      await mgr.onBackendSwitched();
-
-      expect(player.addSubtitleCalls.map((c) => c.uri), ['https://example/fallback.srt']);
-    });
-
-    test('does not duplicate subtitles when fallback attached them at open', () async {
-      final player = _FakePlayer(attachesExternalSubtitlesAtOpen: true);
-      final mgr = _make(player: player);
-      addTearDown(mgr.dispose);
-
-      mgr.cacheExternalSubtitles([SubtitleTrack.uri('https://example/fallback.srt', title: 'EN')]);
-
-      await mgr.onBackendSwitched();
-
-      expect(player.addSubtitleCalls, isEmpty);
-    });
-  });
-
   group('onSubtitleTrackChanged', () {
     // Reproduces the #1443 MKVToolNix screenshot: the "forced" French subtitle
     // is NOT flagged forced in the container — it only carries the name
@@ -1729,6 +1630,7 @@ void main() {
         mediaInfo: info(),
         persister: ({required int partId, required String trackType, required int streamID}) async {
           captured = streamID;
+          return true;
         },
       );
       addTearDown(mgr.dispose);
@@ -1749,6 +1651,7 @@ void main() {
         mediaInfo: info(),
         persister: ({required int partId, required String trackType, required int streamID}) async {
           captured = streamID;
+          return true;
         },
       );
       addTearDown(mgr.dispose);
@@ -1766,6 +1669,7 @@ void main() {
         mediaInfo: info(),
         persister: ({required int partId, required String trackType, required int streamID}) async {
           captured = streamID;
+          return true;
         },
       );
       addTearDown(mgr.dispose);
@@ -1774,31 +1678,269 @@ void main() {
       expect(captured, 32);
     });
 
-    test('does not persist anything when the track maps to no server stream', () async {
+    test('tells the user a pick that maps to no server stream is session-only', () async {
       // #1713: an unmappable native track used to reach the persister with a
       // null streamID, which short-circuited before the request while the
       // manager still reported a successful save. Nothing is stored locally,
-      // so a silent no-op loses the choice on the next start.
+      // so the choice is lost on the next start — say so instead of dropping
+      // it silently.
       await SettingsService.getInstance();
       const unknown = SubtitleTrack(id: '2_9', language: 'jpn', codec: 'ass');
       final player = _FakePlayer(tracks: const Tracks(subtitle: [...playerSubs, unknown]));
+      var persistCalls = 0;
+      final messages = <String>[];
+      final mgr = _make(
+        player: player,
+        mediaInfo: info(),
+        persister: ({required int partId, required String trackType, required int streamID}) async {
+          persistCalls++;
+          return true;
+        },
+        showMessage: (message, {duration}) => messages.add(message),
+      );
+      addTearDown(mgr.dispose);
+
+      await mgr.onSubtitleTrackChanged(unknown);
+      expect(persistCalls, 0);
+      expect(messages, [t.messages.trackSelectionNotRemembered]);
+
+      // Same manager and fixture: a mappable track still persists silently, so
+      // the assertions above are about the unmatched track, not a dead path.
+      await mgr.onSubtitleTrackChanged(playerSubs[0]);
+      expect(persistCalls, 1);
+      expect(messages, hasLength(1));
+    });
+
+    test('tells the user a pick is session-only when the source has no part id', () async {
+      await SettingsService.getInstance();
+      final player = _FakePlayer(tracks: const Tracks(subtitle: playerSubs));
+      var persistCalls = 0;
+      final messages = <String>[];
+      final mgr = _make(
+        player: player,
+        mediaInfo: MediaSourceInfo(
+          videoUrl: 'https://example.com/video.mkv',
+          audioTracks: [MediaAudioTrack(id: 1, languageCode: 'fre', selected: true)],
+          subtitleTracks: info().subtitleTracks,
+          chapters: const [],
+        ),
+        persister: ({required int partId, required String trackType, required int streamID}) async {
+          persistCalls++;
+          return true;
+        },
+        showMessage: (message, {duration}) => messages.add(message),
+      );
+      addTearDown(mgr.dispose);
+
+      await mgr.onSubtitleTrackChanged(playerSubs[0]);
+
+      expect(persistCalls, 0);
+      expect(messages, [t.messages.trackSelectionNotRemembered]);
+    });
+
+    test('writes nothing and says nothing when remembering track selections is off', () async {
+      resetSharedPreferencesForTest(initialAsync: {'remember_track_selections': false});
+      await SettingsService.getInstance();
+      final player = _FakePlayer(tracks: const Tracks(subtitle: playerSubs));
+      var persistCalls = 0;
+      final messages = <String>[];
+      final mgr = _make(
+        player: player,
+        mediaInfo: info(),
+        persister: ({required int partId, required String trackType, required int streamID}) async {
+          persistCalls++;
+          return true;
+        },
+        showMessage: (message, {duration}) => messages.add(message),
+      );
+      addTearDown(mgr.dispose);
+
+      // A mappable pick and an unmappable one: the setting suppresses both the
+      // write and the notice, so an opt-out stays quiet.
+      await mgr.onSubtitleTrackChanged(playerSubs[0]);
+      await mgr.onSubtitleTrackChanged(const SubtitleTrack(id: '2_9', language: 'jpn', codec: 'ass'));
+
+      expect(persistCalls, 0);
+      expect(messages, isEmpty);
+    });
+
+    test('a server refusal makes the pick session-only, said once per item', () async {
+      // A 403/404 from PUT /library/parts used to be swallowed by the catch
+      // while the user saw nothing: the choice was silently lost on the next
+      // start. The refusal now surfaces, and only once — every later pick on
+      // the same source fails the same way.
+      await SettingsService.getInstance();
+      final player = _FakePlayer(tracks: const Tracks(subtitle: playerSubs));
+      final messages = <String>[];
       var persistCalls = 0;
       final mgr = _make(
         player: player,
         mediaInfo: info(),
         persister: ({required int partId, required String trackType, required int streamID}) async {
           persistCalls++;
+          throw MediaServerHttpException(type: MediaServerHttpErrorType.unknown, statusCode: 403, message: 'HTTP 403');
+        },
+        showMessage: (message, {duration}) => messages.add(message),
+      );
+      addTearDown(mgr.dispose);
+
+      await mgr.onSubtitleTrackChanged(playerSubs[0]);
+      await mgr.onSubtitleTrackChanged(playerSubs[1]);
+
+      expect(persistCalls, 2);
+      expect(messages, [t.messages.trackSelectionNotRemembered]);
+    });
+
+    test('a server that answers without storing the pick is reported like a refusal', () async {
+      await SettingsService.getInstance();
+      final player = _FakePlayer(tracks: const Tracks(subtitle: playerSubs));
+      final messages = <String>[];
+      final mgr = _make(
+        player: player,
+        mediaInfo: info(),
+        persister: ({required int partId, required String trackType, required int streamID}) async => false,
+        showMessage: (message, {duration}) => messages.add(message),
+      );
+      addTearDown(mgr.dispose);
+
+      await mgr.onSubtitleTrackChanged(playerSubs[0]);
+
+      expect(messages, [t.messages.trackSelectionNotRemembered]);
+    });
+
+    test('a stored pick says nothing', () async {
+      await SettingsService.getInstance();
+      final player = _FakePlayer(tracks: const Tracks(subtitle: playerSubs));
+      final messages = <String>[];
+      final mgr = _make(
+        player: player,
+        mediaInfo: info(),
+        persister: ({required int partId, required String trackType, required int streamID}) async => true,
+        showMessage: (message, {duration}) => messages.add(message),
+      );
+      addTearDown(mgr.dispose);
+
+      await mgr.onSubtitleTrackChanged(playerSubs[0]);
+
+      expect(messages, isEmpty);
+    });
+
+    test('a request that never reached the server stays in the log', () async {
+      // No verdict is not a refusal: the server may well store the next
+      // attempt, and there is nothing the user can act on mid-playback.
+      await SettingsService.getInstance();
+      final player = _FakePlayer(tracks: const Tracks(subtitle: playerSubs));
+      final messages = <String>[];
+      final mgr = _make(
+        player: player,
+        mediaInfo: info(),
+        persister: ({required int partId, required String trackType, required int streamID}) async {
+          throw MediaServerHttpException(type: MediaServerHttpErrorType.connectionTimeout, message: 'timed out');
+        },
+        showMessage: (message, {duration}) => messages.add(message),
+      );
+      addTearDown(mgr.dispose);
+
+      await mgr.onSubtitleTrackChanged(playerSubs[0]);
+
+      expect(messages, isEmpty);
+    });
+  });
+
+  group('MediaBrowser track selection memory', () {
+    // No part id and no stream matching on this path: the pick itself rides
+    // the progress reports, and the only question is whether the account
+    // will keep it.
+    MediaItem meta() => testMediaItem(id: 'jf1', backend: MediaBackend.jellyfin, kind: MediaKind.movie);
+    const playerSubs = [SubtitleTrack(id: '1', language: 'eng', codec: 'subrip')];
+    const playerAudio = [AudioTrack(id: '1', language: 'eng', codec: 'aac')];
+
+    test('a pick asks the account to remember its track type and says nothing once it will', () async {
+      await SettingsService.getInstance();
+      final player = _FakePlayer(
+        tracks: const Tracks(audio: playerAudio, subtitle: playerSubs),
+      );
+      final asked = <String>[];
+      final messages = <String>[];
+      final mgr = _make(
+        player: player,
+        metadata: meta(),
+        mediaInfo: _mediaInfoWithSubtitles(),
+        memoryEnabler: (trackType) async {
+          asked.add(trackType);
+          return true;
+        },
+        showMessage: (message, {duration}) => messages.add(message),
+      );
+      addTearDown(mgr.dispose);
+
+      await mgr.onAudioTrackChanged(playerAudio[0]);
+      await mgr.onSubtitleTrackChanged(playerSubs[0]);
+
+      expect(asked, ['audio', 'subtitle']);
+      expect(messages, isEmpty);
+    });
+
+    test('an account that cannot remember picks (Emby) makes them session-only, said once', () async {
+      await SettingsService.getInstance();
+      final player = _FakePlayer(
+        tracks: const Tracks(audio: playerAudio, subtitle: playerSubs),
+      );
+      final messages = <String>[];
+      final mgr = _make(
+        player: player,
+        metadata: testMediaItem(id: 'emby1', backend: MediaBackend.emby, kind: MediaKind.movie),
+        mediaInfo: _mediaInfoWithSubtitles(),
+        memoryEnabler: (_) async => false,
+        showMessage: (message, {duration}) => messages.add(message),
+      );
+      addTearDown(mgr.dispose);
+
+      await mgr.onAudioTrackChanged(playerAudio[0]);
+      await mgr.onSubtitleTrackChanged(playerSubs[0]);
+
+      expect(messages, [t.messages.trackSelectionNotRemembered]);
+    });
+
+    test('an account write the server refused makes the pick session-only', () async {
+      await SettingsService.getInstance();
+      final player = _FakePlayer(tracks: const Tracks(subtitle: playerSubs));
+      final messages = <String>[];
+      final mgr = _make(
+        player: player,
+        metadata: meta(),
+        mediaInfo: _mediaInfoWithSubtitles(),
+        memoryEnabler: (_) async {
+          throw MediaServerHttpException(type: MediaServerHttpErrorType.unknown, statusCode: 500, message: 'HTTP 500');
+        },
+        showMessage: (message, {duration}) => messages.add(message),
+      );
+      addTearDown(mgr.dispose);
+
+      await mgr.onSubtitleTrackChanged(playerSubs[0]);
+
+      expect(messages, [t.messages.trackSelectionNotRemembered]);
+    });
+
+    test('the account is left alone when remembering track selections is off', () async {
+      resetSharedPreferencesForTest(initialAsync: {'remember_track_selections': false});
+      await SettingsService.getInstance();
+      final player = _FakePlayer(tracks: const Tracks(subtitle: playerSubs));
+      var asked = 0;
+      final mgr = _make(
+        player: player,
+        metadata: meta(),
+        mediaInfo: _mediaInfoWithSubtitles(),
+        memoryEnabler: (_) async {
+          asked++;
+          return true;
         },
       );
       addTearDown(mgr.dispose);
 
-      await mgr.onSubtitleTrackChanged(unknown);
-      expect(persistCalls, 0);
-
-      // Same manager and fixture: a mappable track still persists, so the
-      // assertion above is about the unmatched track, not a disabled path.
       await mgr.onSubtitleTrackChanged(playerSubs[0]);
-      expect(persistCalls, 1);
+
+      expect(asked, 0);
     });
   });
 

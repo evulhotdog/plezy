@@ -122,11 +122,11 @@ class CatalogSourcesProvider extends ChangeNotifier with DisposableChangeNotifie
   CatalogSourceId? _preferredSourceId;
   String _activeUserUuid = '';
 
-  // Per-item watchlist candidates (see [watchlistCandidatesFor]): the future
-  // cache dedups/retries loads, the results map gives menu surfaces
-  // synchronous access for labeling, and the generation guard keeps a load
-  // that outlives a source rebind from repopulating disposed sources.
-  final KeyedFutureCache<String, List<WatchlistCandidate>> _watchlistCandidateLoads = KeyedFutureCache();
+  // Per-item watchlist candidates (see [watchlistCandidatesFor]): the
+  // coalescer keeps one load in flight per item, the results map gives menu
+  // surfaces synchronous access for labeling, and the generation guard keeps
+  // a load that outlives a source rebind from repopulating disposed sources.
+  final KeyedFutureCoalescer<String, List<WatchlistCandidate>> _watchlistCandidateLoads = KeyedFutureCoalescer();
   final Map<String, List<WatchlistCandidate>> _watchlistCandidateResults = {};
   int _watchlistCandidateGeneration = 0;
 
@@ -185,14 +185,15 @@ class CatalogSourcesProvider extends ChangeNotifier with DisposableChangeNotifie
   /// next call retries); a null [client] (server offline) resolves to
   /// nothing without caching the miss. Invalidated when sources rebind.
   Future<List<WatchlistCandidate>> watchlistCandidatesFor(MediaItem item, {required MediaServerClient? client}) {
-    final cached = _watchlistCandidateResults[_watchlistItemKey(item)];
+    final key = _watchlistItemKey(item);
+    final cached = _watchlistCandidateResults[key];
     if (cached != null) return Future.value(cached);
     if (client == null) return Future.value(const []);
     final generation = _watchlistCandidateGeneration;
-    return _watchlistCandidateLoads.run(_watchlistItemKey(item), () async {
+    return _watchlistCandidateLoads.run(key, () async {
       final candidates = await resolveWatchlistCandidates(client: client, item: item, sources: watchlistCapableSources);
       if (!isDisposed && generation == _watchlistCandidateGeneration) {
-        _watchlistCandidateResults[_watchlistItemKey(item)] = candidates;
+        _watchlistCandidateResults[key] = candidates;
       }
       return candidates;
     });
@@ -262,12 +263,26 @@ class CatalogSourcesProvider extends ChangeNotifier with DisposableChangeNotifie
     }
   }
 
-  Future<void> setActiveSource(CatalogSourceId id) async {
-    if (_preferredSourceId == id) return;
+  CatalogSourceId? get preferredSourceId => _preferredSourceId;
+
+  /// Null clears the override and restores the first connected source.
+  Future<void> setActiveSource(CatalogSourceId? id, {void Function()? checkCurrent}) async {
+    if (id != null && _preferredSourceId == id) return;
+    final userScope = _activeUserUuid;
+    final generation = _profileBindingGeneration;
+    final prefs = await BaseSharedPreferencesService.sharedCache();
+    if (isDisposed || generation != _profileBindingGeneration) return;
+    checkCurrent?.call();
+    final key = profileScopedPrefsKey(userScope, _activeSourceBaseKey);
+    if (id == null) {
+      await prefs.remove(key);
+    } else {
+      await prefs.setString(key, id.name);
+    }
+    if (isDisposed || generation != _profileBindingGeneration) return;
+    checkCurrent?.call();
     _preferredSourceId = id;
     safeNotifyListeners();
-    final prefs = await BaseSharedPreferencesService.sharedCache();
-    await prefs.setString(profileScopedPrefsKey(_activeUserUuid, _activeSourceBaseKey), id.name);
   }
 
   /// Proxy-provider update hook: rebuild a source when its catalog client

@@ -18,7 +18,9 @@ import 'package:plezy/services/plex_api_cache.dart';
 import 'package:plezy/services/plex_client.dart';
 import 'package:plezy/services/playback_initialization_types.dart';
 import 'package:plezy/models/transcode_quality_preset.dart';
+import 'package:plezy/utils/media_server_timeouts.dart';
 import '../test_helpers/backend_client_fixtures.dart';
+import '../test_helpers/http_fixtures.dart';
 
 /// Pins the [LiveTvPlaybackSession] lifecycle on both backends — the
 /// per-backend protocol that used to be hand-rolled (3×) inside the player's
@@ -36,9 +38,6 @@ void main() {
   tearDown(() async {
     await db.close();
   });
-
-  http.Response jsonResponse(Map<String, dynamic> body) =>
-      http.Response(jsonEncode(body), 200, headers: {'content-type': 'application/json'});
 
   group('Plex live playback session', () {
     Map<String, dynamic> tuneResponse() => {
@@ -144,6 +143,113 @@ void main() {
       // Tune only — no transcode decision until the caller asks for a URL
       // (a watch-from-start dialog sits between the two).
       expect(requests, ['/livetv/dvrs/dvr-1/channels/ch-1/tune']);
+    });
+
+    test('discarding a tune stops its session without waiting for the idle expiry', () async {
+      final tuneSessions = <String?>[];
+      final timelines = <Map<String, String>>[];
+      final client = makeClient((request) async {
+        if (request.url.path.endsWith('/tune')) {
+          tuneSessions.add(request.url.queryParameters['X-Plex-Session-Identifier']);
+          return jsonResponse(tuneResponse());
+        }
+        if (request.url.path == '/:/timeline') timelines.add(request.url.queryParameters);
+        return jsonResponse(const {});
+      });
+      addTearDown(client.close);
+
+      final session = await client.liveTv.startPlayback('ch-1', dvrKey: 'dvr-1');
+      await session!.discard();
+
+      expect(timelines, hasLength(1));
+      expect(timelines.single['state'], 'stopped');
+      expect(timelines.single['key'], '/livetv/sessions/session-abc');
+      expect(timelines.single['X-Plex-Session-Identifier'], tuneSessions.single);
+    });
+
+    test('a tune that answers after its caller gave up is stopped, not replayed', () {
+      fakeAsync((async) {
+        final tuneSessions = <String?>[];
+        final timelines = <Map<String, String>>[];
+        final client = makeClient((request) async {
+          if (request.url.path.endsWith('/tune')) {
+            tuneSessions.add(request.url.queryParameters['X-Plex-Session-Identifier']);
+            await Future<void>.delayed(const Duration(seconds: 45));
+            return jsonResponse(tuneResponse());
+          }
+          if (request.url.path == '/:/timeline') timelines.add(request.url.queryParameters);
+          return jsonResponse(const {});
+        });
+        try {
+          var resolved = false;
+          LiveTvPlaybackSession? session;
+          unawaited(
+            client.liveTv.startPlayback('ch-1', dvrKey: 'dvr-1').then((value) {
+              resolved = true;
+              session = value;
+            }),
+          );
+          async.elapse(MediaServerTimeouts.tune);
+          expect(resolved, isTrue, reason: 'the caller stops waiting at the tune budget');
+          expect(session, isNull);
+          expect(timelines, isEmpty);
+
+          async.elapse(const Duration(seconds: 15));
+          expect(tuneSessions, hasLength(1), reason: 'a tune that may already be tuning is never replayed');
+          expect(timelines, hasLength(1));
+          expect(timelines.single['state'], 'stopped');
+          expect(timelines.single['key'], '/livetv/sessions/session-abc');
+          expect(timelines.single['X-Plex-Session-Identifier'], tuneSessions.single);
+        } finally {
+          client.close();
+          async.flushMicrotasks();
+        }
+      });
+    });
+
+    test('a tune stuck past the transport ceiling is abandoned without a replay', () {
+      fakeAsync((async) {
+        final transport = _HangingLiveTuneClient();
+        final client = testPlexClient(
+          config: PlexConfig(
+            baseUrl: 'https://plex.example.com',
+            token: 'tok',
+            clientIdentifier: 'client',
+            product: 'Plezy',
+            version: '1',
+            machineIdentifier: 'machine-1',
+          ),
+          serverId: ServerId('machine-1'),
+          httpClient: transport,
+        );
+        try {
+          unawaited(client.liveTv.startPlayback('ch-1', dvrKey: 'dvr-1'));
+          async.elapse(MediaServerTimeouts.tune);
+          expect(transport.aborted, isFalse, reason: 'the server may still be tuning');
+          async.elapse(MediaServerTimeouts.tuneTransport);
+          expect(transport.aborted, isTrue);
+          expect(transport.requests, 1);
+        } finally {
+          client.close();
+          async.flushMicrotasks();
+        }
+      });
+    });
+
+    test('a tune whose connection dropped is retried once', () async {
+      var tunes = 0;
+      final client = makeClient((request) async {
+        if (request.url.path.endsWith('/tune')) {
+          tunes++;
+          if (tunes == 1) throw http.ClientException('Connection reset by peer', request.url);
+          return jsonResponse(tuneResponse());
+        }
+        return jsonResponse(const {});
+      });
+      addTearDown(client.close);
+
+      expect(await client.liveTv.startPlayback('ch-1', dvrKey: 'dvr-1'), isNotNull);
+      expect(tunes, 2);
     });
 
     test('tune exposes only embedded bitmap subtitle streams as burn targets', () async {
@@ -431,7 +537,7 @@ void main() {
       expect(uri.queryParameters['X-Plex-Client-Profile-Extra'], isNot(contains('add-limitation')));
     });
 
-    test('a capped preset forces an h264 encode at that ceiling and survives recovery', () async {
+    test('a capped preset asks for a remux under a bitrate ceiling and survives recovery', () async {
       final decisions = <Uri>[];
       final client = makeClient((request) async {
         if (request.url.path.endsWith('/tune')) {
@@ -452,16 +558,21 @@ void main() {
       ))!;
       final uri = Uri.parse((await session.streamUrlAt())!);
 
-      // Without a client ceiling a remote session lands on the server's own
-      // top transcode tier (#2072): the cap must reach both the decision and
-      // the start request, as bitrate limitation plus resolution/quality caps.
-      expect(uri.queryParameters['directStream'], '0');
+      // A preset is a ceiling, not a re-encode request: the remux is still
+      // asked for so the server copies a channel that already fits (pinning
+      // directStream=0 re-encoded an in-cap 1080p channel at 0.40x). Without
+      // a client ceiling a remote session lands on the server's own top
+      // transcode tier (#2072): the cap must reach both the decision and the
+      // start request, as bitrate limitation plus resolution/quality caps.
+      expect(uri.queryParameters['directPlay'], '0');
+      expect(uri.queryParameters['directStream'], '1');
       expect(uri.queryParameters['videoResolution'], '1280x720');
       expect(uri.queryParameters['videoQuality'], '60');
       final profile = uri.queryParameters['X-Plex-Client-Profile-Extra']!;
       expect(profile, contains('name=video.bitrate&value=2000'));
-      // Every target codec is now an encode output; HEVC into TS is the #1859
-      // corruption, so the h264-only TS target replaces the broadcast one.
+      // The ceiling can force an encode, so the codec list doubles as the
+      // encode menu; HEVC into TS is the #1859 corruption, so the h264-only
+      // TS target replaces the broadcast one.
       expect(profile, contains('container=mpegts&videoCodec=h264&'));
       expect(profile, isNot(contains('hevc')));
       expect(decisions.single.queryParameters['videoResolution'], '1280x720');
@@ -470,7 +581,7 @@ void main() {
       // A re-tune keeps the cap; dropping it would reopen the uncapped shape.
       final recovered = await session.recover(directStream: true, directStreamAudio: true);
       final recoveredUri = Uri.parse((await recovered!.streamUrlAt())!);
-      expect(recoveredUri.queryParameters['directStream'], '0');
+      expect(recoveredUri.queryParameters['directStream'], '1');
       expect(recoveredUri.queryParameters['X-Plex-Client-Profile-Extra'], contains('value=2000'));
     });
   });
@@ -532,38 +643,89 @@ void main() {
       });
     });
 
-    test('${connection.dialect.productName} aborts a stuck live tune at thirty seconds without replay', () {
-      fakeAsync((async) {
-        final transport = _HangingLiveTuneClient();
-        final client = JellyfinClient.forTesting(connection: connection, httpClient: transport);
-        try {
-          Object? failure;
-          unawaited(
-            client.liveTv
-                .startPlayback('channel-1')
-                .then<void>(
-                  (_) => fail('A stuck tuner must not start playback'),
-                  onError: (Object error) {
-                    failure = error;
+    test(
+      '${connection.dialect.productName} stops waiting for a stuck live tune at thirty seconds without hanging up',
+      () {
+        fakeAsync((async) {
+          final transport = _HangingLiveTuneClient();
+          final client = JellyfinClient.forTesting(connection: connection, httpClient: transport);
+          try {
+            Object? failure;
+            unawaited(
+              client.liveTv
+                  .startPlayback('channel-1')
+                  .then<void>(
+                    (_) => fail('A stuck tuner must not start playback'),
+                    onError: (Object error) {
+                      failure = error;
+                    },
+                  ),
+            );
+            async.elapse(const Duration(seconds: 29));
+            expect(failure, isNull);
+            async.elapse(const Duration(seconds: 1));
+            expect(
+              failure,
+              isA<MediaServerHttpException>().having((e) => e.type, 'type', MediaServerHttpErrorType.connectionTimeout),
+            );
+            // The server opens the tuner whether or not we are still connected
+            // (#2394); hanging up would drop the only answer that names it.
+            expect(transport.aborted, isFalse);
+            async.elapse(MediaServerTimeouts.tuneTransport);
+            expect(transport.aborted, isTrue, reason: 'a dead connection is still bounded');
+            expect(transport.requests, 1, reason: 'a tune is never replayed');
+          } finally {
+            client.close();
+            async.flushMicrotasks();
+          }
+        });
+      },
+    );
+
+    for (final (name, answerAfter, expectedCloses) in [
+      ('closes the stream of a tune that answers after its caller gave up', const Duration(seconds: 45), ['live-1']),
+      ('keeps the stream of a tune that answers in time', const Duration(seconds: 29), <String>[]),
+    ]) {
+      test('${connection.dialect.productName} $name', () {
+        fakeAsync((async) {
+          final followUps = <Uri>[];
+          final client = JellyfinClient.forTesting(
+            connection: connection,
+            httpClient: MockClient((request) async {
+              if (!request.url.path.endsWith('/PlaybackInfo')) {
+                followUps.add(request.url);
+                return http.Response('', 204);
+              }
+              await Future<void>.delayed(answerAfter);
+              return jsonResponse({
+                'PlaySessionId': 'play-1',
+                'MediaSources': [
+                  {
+                    'Id': 'source-1',
+                    'Container': 'ts',
+                    'LiveStreamId': 'live-1',
+                    'TranscodingUrl': '/Videos/channel-1/live.m3u8?LiveStreamId=live-1',
                   },
-                ),
+                ],
+              });
+            }),
           );
-          async.elapse(const Duration(seconds: 29));
-          expect(failure, isNull);
-          expect(transport.aborted, isFalse);
-          async.elapse(const Duration(seconds: 1));
-          expect(
-            failure,
-            isA<MediaServerHttpException>().having((e) => e.type, 'type', MediaServerHttpErrorType.connectionTimeout),
-          );
-          expect(transport.aborted, isTrue);
-          expect(transport.requests, 1);
-        } finally {
-          client.close();
-          async.flushMicrotasks();
-        }
+          try {
+            unawaited(client.liveTv.startPlayback('channel-1').then<void>((_) {}, onError: (Object _) {}));
+            async.elapse(MediaServerTimeouts.tuneTransport);
+            expect(
+              followUps.map((uri) => uri.queryParameters['liveStreamId']),
+              expectedCloses,
+              reason: 'only a stream nobody received is closed, exactly once',
+            );
+            expect(followUps.every((uri) => uri.path.endsWith('/LiveStreams/Close')), isTrue);
+          } finally {
+            client.close();
+            async.flushMicrotasks();
+          }
+        });
       });
-    });
+    }
 
     for (final (name, isLiveTv, autoOpen) in [
       ('VOD', false, null),
@@ -635,12 +797,14 @@ void main() {
       final direct = (await client.liveTv.startPlayback('channel-1'))!;
       expect(Uri.parse((await direct.streamUrlAt())!).path, '/Videos/channel-1/stream.ts');
       expect(negotiations.single['EnableDirectPlay'], isTrue);
+      expect(negotiations.single['MaxStreamingBitrate'], 100_000_000);
       expect(containers(negotiations.single), liveContainers);
 
       final recovered = (await direct.recover(directStream: false, directStreamAudio: true))!;
       expect(Uri.parse((await recovered.streamUrlAt())!).path, '/Videos/channel-1/live.m3u8');
       expect(containers(negotiations[1]), liveContainers);
       expect(negotiations[1]['EnableDirectPlay'], isFalse);
+      expect(negotiations[1]['MaxStreamingBitrate'], 100_000_000);
       expect(negotiations[1]['AllowVideoStreamCopy'], isTrue);
       expect(negotiations[1]['AllowAudioStreamCopy'], isTrue);
       await recovered.reportTimeline(state: 'stopped', positionMs: 0, durationMs: 0);
@@ -721,6 +885,61 @@ void main() {
       // Recovery re-opens the negotiated HLS URL.
       expect(await session.recover(directStream: false, directStreamAudio: false), same(session));
     });
+
+    for (final (name, source, expectedCalls) in [
+      (
+        'a transcode stops its encoding before closing the stream',
+        {
+          'Id': 'source-1',
+          'Container': 'ts',
+          'LiveStreamId': 'live-1',
+          'TranscodingUrl': '/Videos/channel-1/live.m3u8?PlaySessionId=play-1',
+        },
+        [
+          'DELETE /Videos/ActiveEncodings deviceId=dev-xyz playSessionId=play-1',
+          'POST /LiveStreams/Close liveStreamId=live-1',
+        ],
+      ),
+      (
+        'a direct play only closes the stream',
+        {'Id': 'source-1', 'Container': 'ts', 'LiveStreamId': 'live-1', 'SupportsDirectPlay': true},
+        ['POST /LiveStreams/Close liveStreamId=live-1'],
+      ),
+    ]) {
+      // A stop report only closes a stream no other session plays (10.11+),
+      // and a transcode left to its idle timer closes the stream itself: the
+      // order is what keeps the release to exactly one (#2394).
+      test('discarding $name, with no stop report', () async {
+        final calls = <String>[];
+        final client = JellyfinClient.forTesting(
+          connection: conn(),
+          httpClient: MockClient((request) async {
+            if (request.url.path.endsWith('/PlaybackInfo')) {
+              return jsonResponse({
+                'PlaySessionId': 'play-1',
+                'MediaSources': [source],
+              });
+            }
+            final query = request.url.queryParameters;
+            calls.add(
+              [
+                request.method,
+                request.url.path,
+                for (final key in const ['deviceId', 'playSessionId', 'liveStreamId'])
+                  if (query[key] case final value?) '$key=$value',
+              ].join(' '),
+            );
+            return http.Response('', 204);
+          }),
+        );
+        addTearDown(client.close);
+
+        final session = await client.liveTv.startPlayback('channel-1');
+        await session!.discard();
+
+        expect(calls, expectedCalls);
+      });
+    }
 
     test('startPlayback propagates status and cancellation failures', () async {
       final handlers = <(String, Future<http.Response> Function(http.Request))>[
@@ -805,12 +1024,17 @@ void main() {
 
       final session = await client.liveTv.startPlayback('channel-1');
 
-      final body = jsonDecode(negotiations.single.body) as Map<String, dynamic>;
+      final request = negotiations.single;
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      final deviceProfile = body['DeviceProfile'] as Map<String, dynamic>;
       expect(body['EnableDirectPlay'], isTrue);
       expect(body['EnableDirectStream'], isTrue);
-      // Original sends no ceiling: the server assumes 40 Mbps for an unknown
-      // live bitrate, so any real cap would silently deny direct play.
-      expect(body.containsKey('MaxStreamingBitrate'), isFalse);
+      // Original uses Plezy's normal high negotiation ceiling. 100 Mbps is
+      // above MediaBrowser's 40 Mbps unknown-live estimate and prevents an
+      // omitted DeviceProfile value from falling back to 8 Mbps server-side.
+      expect(request.url.queryParameters['MaxStreamingBitrate'], '100000000');
+      expect(body['MaxStreamingBitrate'], 100_000_000);
+      expect(deviceProfile['MaxStreamingBitrate'], 100_000_000);
 
       // The server-proxied direct URL jellyfin-web uses (not the raw tuner
       // Path, which needs reachability probing).
@@ -829,7 +1053,7 @@ void main() {
       expect(report['LiveStreamId'], 'live-1');
     });
 
-    test('a capped preset forces a transcode at that ceiling', () async {
+    test('a capped preset transcodes a source the server keeps above the ceiling', () async {
       final negotiations = <http.Request>[];
       final client = JellyfinClient.forTesting(
         connection: conn(),
@@ -855,11 +1079,47 @@ void main() {
 
       final session = await client.liveTv.startPlayback('channel-1', quality: TranscodeQualityPreset.p720_2mbps);
 
+      // Direct play is asked for on every preset: the ceiling is what the
+      // server compares the source against, and this source did not clear it,
+      // so the negotiation still comes back as a transcode (#2306).
       final body = jsonDecode(negotiations.single.body) as Map<String, dynamic>;
-      expect(body['EnableDirectPlay'], isFalse);
-      expect(body['EnableDirectStream'], isFalse);
+      expect(body['EnableDirectPlay'], isTrue);
+      expect(body['EnableDirectStream'], isTrue);
       expect(body['MaxStreamingBitrate'], 2_000_000);
       expect(Uri.parse((await session!.streamUrlAt())!).path, endsWith('.m3u8'));
+    });
+
+    test('a capped preset direct-plays a source the server clears', () async {
+      final negotiations = <http.Request>[];
+      final reports = <http.Request>[];
+      final client = JellyfinClient.forTesting(
+        connection: conn(),
+        httpClient: MockClient((request) async {
+          if (request.url.path.contains('PlaybackInfo')) {
+            negotiations.add(request);
+            return jsonResponse({
+              'PlaySessionId': 'play-1',
+              'MediaSources': [
+                {'Id': 'source-1', 'Container': 'ts', 'LiveStreamId': 'live-1', 'SupportsDirectPlay': true},
+              ],
+            });
+          }
+          if (request.url.path.contains('Sessions/Playing')) reports.add(request);
+          return jsonResponse(const {});
+        }),
+      );
+      addTearDown(client.close);
+
+      final session = await client.liveTv.startPlayback('channel-1', quality: TranscodeQualityPreset.p720_2mbps);
+
+      final body = jsonDecode(negotiations.single.body) as Map<String, dynamic>;
+      expect(body['MaxStreamingBitrate'], 2_000_000);
+      expect(body['EnableDirectPlay'], isTrue);
+      expect(Uri.parse((await session!.streamUrlAt())!).path, '/Videos/channel-1/stream.ts');
+
+      await session.reportTimeline(state: 'playing', positionMs: 1000, durationMs: 0);
+      final report = jsonDecode(reports.single.body) as Map<String, dynamic>;
+      expect(report['PlayMethod'], 'DirectPlay');
     });
 
     test('a negotiation that yields no HLS URL closes the live stream it opened', () async {
@@ -943,6 +1203,7 @@ void main() {
       final retryBody = jsonDecode(negotiations[1].body) as Map<String, dynamic>;
       expect(retryBody['EnableDirectPlay'], isFalse);
       expect(retryBody['EnableDirectStream'], isFalse);
+      expect(retryBody['MaxStreamingBitrate'], 100_000_000);
 
       // …and the replaced direct session's live stream is released: the
       // player adopts the replacement without ever stop-reporting the old one.

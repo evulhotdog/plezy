@@ -213,6 +213,7 @@
     "minutesUnit": "${minutes} minutes",
     "rememberTrackSelections": "Remember track selections per show/movie",
     "rememberTrackSelectionsDescription": "Remember audio and subtitle choices per title",
+    "rememberTrackSelectionsBackendRule": "Plex saves each choice on the server per file; Jellyfin also turns on the account's Remember selections; Emby is not supported",
     "followServerTrackSelections": "Use server's per-episode track selections",
     "followServerTrackSelectionsDescription": "On episode change, apply the audio and subtitles selected on the server instead of carrying over the current choice",
     "resumeMusicOnLaunch": "Remember music session",
@@ -273,6 +274,8 @@
     "autoPlayAndSkip": "Auto-Play & Skip",
     "autoPlayNextEpisode": "Auto-Play Next Episode",
     "autoPlayNextEpisodeDescription": "Start the next episode automatically when one ends",
+    "shuffleStartsFromBeginning": "Shuffle Starts at Beginning",
+    "shuffleStartsFromBeginningDescription": "Start each episode at the beginning when shuffling instead of resuming",
     "playNextCountdown": "Play Next Countdown",
     "playNextCountdownImmediate": "Play immediately",
     "skipIntroMode": "Skip Intro",
@@ -322,6 +325,8 @@
     "manageLibrariesDescription": "Reorder and hide libraries",
     "companionRemoteServer": "Companion Remote Server",
     "companionRemoteServerDescription": "Allow mobile devices on your network to control this app",
+    "companionRemoteServerStartFailed": "Couldn't start the companion server",
+    "companionRemoteServerStopFailed": "Couldn't stop the companion server",
     "autoPip": "Auto Picture-in-Picture",
     "autoPipDescription": "Automatically enter picture-in-picture when you leave the app during playback",
     "matchContentFrameRate": "Match Content Frame Rate",
@@ -338,6 +343,7 @@
     "audioPassthrough": "Audio Passthrough",
     "audioPassthroughDescription": "Send Dolby/DTS audio to your receiver or TV without re-encoding, preserving surround sound. Turn off if you have no sound.",
     "audioPassthroughDescriptionAppleTv": "Use Apple's native Dolby decoder for Dolby Digital Plus, including Atmos. DTS and TrueHD still play as multichannel PCM. Turn off if you have no sound.",
+    "audioPassthroughOverriddenByNormalization": "Off while loudness normalization is on",
     "audioDownmix": "Downmix to Stereo",
     "audioDownmixDescription": "Mix surround audio down to two channels for stereo speakers or headphones",
     "downmixCenterBoost": "Center Channel Boost",
@@ -725,6 +731,7 @@
     "pipFailed": "Picture-in-picture failed to start",
     "screenshotSaved": "Screenshot saved",
     "zoomPercent": "Zoom ${percent}%",
+    "volumePercent": "Volume ${percent}%",
     "pipErrors": {
       "androidVersion": "Requires Android 8.0 or newer",
       "iosVersion": "Requires iOS 15.0 or newer",
@@ -779,6 +786,7 @@
     "playbackDataInvalid": "The server returned invalid playback information.",
     "playbackCancelled": "Playback was canceled.",
     "playbackFailed": "Playback could not be started.",
+    "playbackFailedDetail": "Playback could not be started: ${error}",
     "audioOutputFailed": "The audio output stopped responding. Check the TV or receiver's audio connection; if other apps have no sound either, restart the device.",
     "mediaUnavailable": "This content is no longer available.",
     "errorLoadingFileInfo": "Error loading file info: ${error}",
@@ -824,6 +832,7 @@
     "playbackDataNotPrepared": "Playback was started before its data was ready",
     "streamSelectionUnavailable": "Stream selection is not available for this source",
     "streamSelectionFailed": "Could not apply the selected streams",
+    "trackSelectionNotRemembered": "This track choice applies to the current playback only.",
     "serverUnavailableForProfile": "No server is available for the active profile"
   },
   "subtitlingStyling": {
@@ -843,6 +852,8 @@
     "overrideStrip": "Remove styling",
     "positionTop": "Top",
     "positionBottom": "Bottom",
+    "useMargins": "Use margins",
+    "useMarginsDescription": "Allow text subtitles in the space outside the video. Styled subtitles may keep their original placement.",
     "anchorToScreen": "Anchor to Screen",
     "anchorToScreenDescription": "Show text subtitles in the black bars below widescreen video",
     "bold": "Bold",
@@ -1063,7 +1074,14 @@
     "failedToVerifyToken": "Failed to verify token: ${error}",
     "failedToSwitchProfile": "Failed to switch to ${displayName}",
     "failedToDeleteProfile": "Failed to delete ${displayName}",
-    "failedToRate": "Couldn't update rating"
+    "failedToRate": "Couldn't update rating",
+    "reasonTimedOut": "the connection timed out",
+    "reasonUnreachable": "the server could not be reached",
+    "reasonRefused": "the server refused the request",
+    "reasonNotFound": "the item is no longer on the server",
+    "reasonServerError": "the server reported an error",
+    "reasonCancelled": "the request was cancelled",
+    "reasonUnexpected": "an unexpected error occurred"
   },
   "libraries": {
     "title": "Libraries",
@@ -1132,7 +1150,8 @@
       "tag": "Tag",
       "unwatched": "Unwatched",
       "unplayed": "Unplayed",
-      "favorites": "Favorites"
+      "favorites": "Favorites",
+      "filePath": "File Path"
     },
     "sortLabels": {
       "title": "Title",
@@ -1154,7 +1173,38 @@
       "random": "Random",
       "dateShared": "Date Shared",
       "latestEpisodeAirDate": "Latest Episode Air Date",
-      "lastEpisodeDateAdded": "Last Episode Date Added"
+      "lastEpisodeDateAdded": "Last Episode Date Added",
+      "dateDownloaded": "Date Downloaded",
+      "size": "Size",
+      "library": "Library"
+    },
+    "advancedFilters": {
+      "include": "Include",
+      "exclude": "Exclude",
+      "any": "Any",
+      "yes": "Yes",
+      "no": "No",
+      "not": "Not ${value}",
+      "valueCount": "${count} selected",
+      "valueCountExcluded": "${count} excluded",
+      "searchValues": "Search values",
+      "noValues": "No values",
+      "matchContains": "Contains",
+      "matchNotContains": "Does not contain",
+      "matchIs": "Is",
+      "matchIsNot": "Is not",
+      "matchBeginsWith": "Begins with",
+      "matchEndsWith": "Ends with",
+      "textHint": "Type to match",
+      "from": "From",
+      "to": "To",
+      "range": "${from} to ${to}",
+      "atLeast": "${value} and up",
+      "atMost": "Up to ${value}",
+      "dateLastDays": "Last ${count} days",
+      "dateLastYear": "Past year",
+      "dateOlderThanDays": "Older than ${count} days",
+      "dateOlderThanYear": "Older than a year"
     }
   },
   "about": {
@@ -1479,7 +1529,9 @@
     "editRuleAction": "Edit",
     "recordingRuleUpdated": "Recording rule updated",
     "guideReloadRequested": "Guide refresh requested",
+    "guideReloadFailed": "Couldn't refresh the guide",
     "rulesProcessRequested": "Rule re-evaluation requested",
+    "rulesProcessFailed": "Couldn't re-evaluate recording rules",
     "recordShow": "Record show",
     "recordSettings": {
       "startEarly": "Start early (seconds)",
@@ -1495,7 +1547,9 @@
     "dayAtTime": "${day} at ${time}",
     "invalidPlaybackData": "${product} returned invalid Live TV playback data",
     "failedToStartChannel": "Could not start the live channel",
-    "failedToBuildStreamUrl": "Could not build the stream URL"
+    "failedToBuildStreamUrl": "Could not build the stream URL",
+    "playbackStartFailed": "Couldn't start the channel: ${reason}",
+    "channelSwitchFailed": "Couldn't switch channel: ${reason}"
   },
   "collections": {
     "title": "Collections",
@@ -1681,7 +1735,8 @@
     "downloadQueued": "Download queued",
     "downloadResumed": "Download resumed",
     "serverErrorBitrate": "Server error: file may exceed the remote bitrate limit",
-    "storageFull": "Downloads stopped because device storage is full. Free some space, then retry.",
+    "storageFull": "Downloads stopped to protect available storage. Free some space or choose another download location, then retry.",
+    "storageUnavailable": "Downloads stopped because available storage could not be checked. Check the download location, then retry.",
     "episodesQueued": "${count} episodes queued for download",
     "downloadDeleted": "Download deleted",
     "deleteConfirm": "Delete \"${title}\" from this device?",
@@ -1769,6 +1824,11 @@
       "settingsUnavailable": "Couldn't open system settings on this device",
       "linkUnavailable": "Couldn't open dontkillmyapp.com on this device"
     },
+    "options": "Downloads options",
+    "groupings": {
+      "library": "Library"
+    },
+    "unknownLibrary": "Unknown library",
     "unknownShow": "Unknown Show",
     "unknownSeason": "Unknown Season",
     "unknownAlbum": "Unknown Album",
@@ -1897,6 +1957,8 @@
     "audioOutputSpatial": "Spatial Audio",
     "audioOutputStereo": "Stereo",
     "audioNormalization": "Normalize Loudness",
+    "audioNormalizationDisablesPassthrough": "Decodes audio to PCM; passthrough is off while this is on",
+    "audioNormalizationStereoMix": "Decodes audio to a stereo mix; passthrough is off while this is on",
     "audioDownmix": "Downmix to Stereo"
   },
   "performanceOverlay": {
@@ -2039,7 +2101,8 @@
     "producer": "Producer",
     "country": "Country",
     "collection": "Collection",
-    "label": "Label"
+    "label": "Label",
+    "quickTag": "Quick Tag..."
   },
   "matchScreen": {
     "match": "Match...",

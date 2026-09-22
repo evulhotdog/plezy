@@ -105,6 +105,12 @@ abstract class LiveTvPlaybackSession {
   /// window, playback-stream origin), null when it reports nothing.
   Future<LiveTimelineUpdate?> reportTimeline({required String state, required int positionMs, required int durationMs});
 
+  /// Release a session that was never adopted: nothing played it and no
+  /// heartbeat was ever sent for it (a superseded zap, an unmount mid-start, a
+  /// failed recovery). Best-effort; never throws. An adopted session ends with
+  /// a `'stopped'` [reportTimeline] instead.
+  Future<void> discard();
+
   /// Re-establish playback after stream death. Plex re-tunes (the previous
   /// capture session expires while the player exhausts its reconnect
   /// attempts) applying the degradation flags. Jellyfin re-negotiates a
@@ -214,13 +220,13 @@ abstract class LiveTvSupport {
   /// cloud-synced list; Jellyfin reads its locally stored ordering. A
   /// successful read returns the complete list, including `[]` when no
   /// favorites are stored. Unavailable or invalid reads complete with an error.
-  Future<List<FavoriteChannel>> fetchFavoriteChannels();
+  Future<List<FavoriteChannel>> fetchFavoriteChannels({bool migrate = true, void Function()? checkCurrent});
 
   /// Persist the favorites list (and order, where supported). Plex pushes
   /// to its cloud sync endpoint; Jellyfin POSTs/DELETEs the
   /// `/UserFavoriteItems/{channelId}?userId=...` flag and saves the order
   /// locally.
-  Future<void> setFavoriteChannels(List<FavoriteChannel> channels);
+  Future<void> setFavoriteChannels(List<FavoriteChannel> channels, {void Function()? checkCurrent});
 }
 
 /// Recording and DVR administration capability.
@@ -237,7 +243,11 @@ abstract class LiveTvDvrSupport {
   Future<List<SubscriptionTemplate>> getSubscriptionTemplate(String guid);
   Future<List<MediaSubscription>> fetchRecordingRules({bool includeGrabs = true, bool includeStorage = true});
   Future<MediaSubscription?> createRecordingRule(MediaSubscriptionCreateRequest request);
-  Future<MediaSubscription?> updateRecordingRule(String subscriptionId, Map<String, Object?> prefs);
+  Future<MediaSubscription?> updateRecordingRule(
+    String subscriptionId,
+    Map<String, Object?> prefs, {
+    void Function()? checkCurrent,
+  });
   Future<void> deleteRecordingRule(String subscriptionId);
 
   /// Whether [processRecordingRules] triggers real server-side work. Plex's

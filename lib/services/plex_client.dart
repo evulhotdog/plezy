@@ -61,6 +61,7 @@ import '../utils/device_identity.dart';
 import '../utils/failover_http_client.dart';
 import '../utils/app_logger.dart';
 import '../utils/media_server_retry.dart';
+import '../utils/future_extensions.dart';
 import '../utils/media_server_timeouts.dart';
 import '../utils/active_client_scope.dart';
 import '../utils/log_redaction_manager.dart';
@@ -92,8 +93,8 @@ const _plexVideoHlsProtocol = 'hls';
 
 /// VOD transcode target: HLS with fragmented-MP4 segments.
 ///
-/// Every non-Original request pins `directStream=0`, so this codec list is a
-/// menu of *encode* outputs, never copy targets. HEVC must not be offered in
+/// Every non-Original VOD request pins `directStream=0`, so this codec list is
+/// a menu of *encode* outputs, never copy targets. HEVC must not be offered in
 /// an mpegts target: a Plex Pass server with HEVC encoding enabled obliges,
 /// and its hardware HEVC encode → TS segmenter path emits parameter sets mpv
 /// rejects ("PPS changed between slices", issue #1859). Apple's HLS spec
@@ -119,9 +120,10 @@ const _plexHlsVodTsVideoTranscodeTarget =
 /// copy targets, and HEVC *copy* into TS is verified clean), so this
 /// deliberately does not follow the VOD target to fMP4. Residual risk
 /// accepted: a Plex Pass server electing to HEVC-*encode* an Original live
-/// channel would hit the same TS bug. A capped live preset pins
-/// `directStream=0` and therefore uses [_plexHlsVodTsVideoTranscodeTarget]
-/// instead, where HEVC is not on the encode menu.
+/// channel would hit the same TS bug. A capped live preset also asks for
+/// `directStream=1` but carries a bitrate ceiling the server may have to
+/// encode down to, so it uses [_plexHlsVodTsVideoTranscodeTarget] instead,
+/// where HEVC is not on the encode menu.
 const _plexHlsLiveVideoTranscodeTarget =
     'add-transcode-target(type=videoProfile&context=streaming'
     '&protocol=hls&container=mpegts&videoCodec=h264%2Chevc%2Cmpeg2video'
@@ -375,7 +377,7 @@ class PlexClient
         _PlexCollectionMethods,
         _PlexPlayQueueMethods,
         _PlexMetadataEditMethods
-    implements MediaServerClient, SeasonEpisodePagingClient, ScopedMediaServerClient, GracefullyCloseable {
+    implements MediaServerClient, ScopedMediaServerClient, GracefullyCloseable {
   @override
   PlexConfig config;
 
@@ -1039,9 +1041,6 @@ class PlexClient
     }
   }
 
-  @override
-  Future<bool> isHealthy() async => (await checkHealth()) == HealthStatus.online;
-
   /// Get running background tasks (thumbnail generation, credit detection, etc.)
   Future<List<PlexActivity>> getActivities({AbortController? abort}) async {
     try {
@@ -1088,12 +1087,11 @@ class PlexClient
     return _extractLibraryList(response);
   }
 
-  /// Get library content by section ID
   Future<_LibraryContentResult> _getLibraryContent(
     String sectionId, {
     int? start,
     int? size,
-    Map<String, String>? filters,
+    Map<String, dynamic>? filters,
     AbortController? abort,
   }) async {
     final queryParams = _buildPaginationParams(start, size);
@@ -1157,7 +1155,6 @@ class PlexClient
     );
   }
 
-  /// Parse list of PlexMetadataDto from a cached response
   List<PlexMetadataDto> _parseMetadataListFromCachedResponse(Map<String, dynamic> cached) {
     final container = cached['MediaContainer'] is Map<String, dynamic>
         ? cached['MediaContainer'] as Map<String, dynamic>
@@ -1197,7 +1194,6 @@ class PlexClient
   /// Returns URI in format: server://{machineId}/com.plexapp.plugins.library/library/metadata/{ratingKey}
   @override
   Future<String> buildMetadataUri(String ratingKey) async {
-    // Use cached machine identifier from config if available
     final machineId = config.machineIdentifier ?? await getMachineIdentifier();
     if (machineId == null) {
       throw Exception('Could not get server machine identifier');
@@ -1273,7 +1269,6 @@ class PlexClient
         (metadata: null, onDeckEpisode: null);
   }
 
-  /// Parse PlexMetadataDto with images from a cached response
   PlexMetadataDto? _parseMetadataWithImagesFromCachedResponse(Map<String, dynamic> cached) {
     final container = cached['MediaContainer'] is Map<String, dynamic>
         ? cached['MediaContainer'] as Map<String, dynamic>
@@ -1289,7 +1284,6 @@ class PlexClient
     return null;
   }
 
-  /// Get first metadata JSON from response data
   Map<String, dynamic>? _getFirstMetadataJsonFromData(Map<String, dynamic>? data) =>
       PlexCacheParser.extractFirstMetadata(data);
 
@@ -1347,9 +1341,9 @@ class PlexClient
   /// Adapts Plex's [_LibraryContentResult] onto the shared [drainPages] drain,
   /// so it stops as soon as [_LibraryContentResult.totalSize] is reached or a
   /// page returns no items. Errors propagate.
-  @override
   Future<List<PlexMetadataDto>> _fetchAllPages(
     Future<_LibraryContentResult> Function(int start, int size, AbortController? abort) fetchPage, {
+    // ignore: unused_element_parameter
     AbortController? abort,
   }) {
     return drainPages<PlexMetadataDto>((start, size) async {
@@ -1766,7 +1760,6 @@ class PlexClient
         [];
   }
 
-  /// Get thumbnail URL
   String getThumbnailUrl(String? thumbPath) {
     if (thumbPath == null || thumbPath.isEmpty) return '';
     return _http.buildUri(thumbPath).toString().withPlexToken(config.token);
@@ -1880,7 +1873,6 @@ class PlexClient
     return _getFirstMetadataJsonFromData(data);
   }
 
-  /// Parse PlaybackExtras from metadata JSON
   PlaybackExtras _parsePlaybackExtrasFromMetadataJson(
     Map<String, dynamic>? metadataJson, {
     String? introPattern,
@@ -2244,7 +2236,6 @@ class PlexClient
     return _parseSettingsMap(response);
   }
 
-  /// Get available filters for a library section
   Future<List<MediaFilter>> getLibraryFilters(String sectionId) async {
     if (sectionId == 'shared') return [];
     final response = await _getWithFailover('/library/sections/$sectionId/filters');
@@ -2255,7 +2246,7 @@ class PlexClient
   Future<List<LibraryFirstCharacter>> getFirstCharacters(
     String sectionId, {
     int? type,
-    Map<String, String>? filters,
+    Map<String, dynamic>? filters,
   }) async {
     final queryParams = <String, dynamic>{};
     if (type != null) queryParams['type'] = type;
@@ -2686,9 +2677,6 @@ class PlexClient
     );
   }
 
-  /// Get library-specific playlists
-  /// Filters playlists by checking if they contain items from the specified library
-  /// This is a client-side filter since the API doesn't support sectionId for playlists
   /// Scan/refresh a library section to detect new files
   Future<void> scanLibrary(String sectionId) async {
     await _getWithFailover('/library/sections/$sectionId/refresh');
@@ -2700,13 +2688,11 @@ class PlexClient
     await _getWithFailover('/library/sections/$sectionId/refresh?force=1');
   }
 
-  /// Empty trash for a library section
   Future<void> emptyLibraryTrash(String sectionId) async {
     final response = await _http.put('/library/sections/$sectionId/emptyTrash');
     throwIfHttpError(response);
   }
 
-  /// Analyze library section
   Future<void> analyzeLibrary(String sectionId) async {
     await _getWithFailover('/library/sections/$sectionId/analyze');
   }
@@ -3078,14 +3064,8 @@ class PlexClient
       'X-Plex-Features': 'external-media,indirect-media',
       'X-Plex-Model': 'standalone',
       'X-Plex-Language': 'en',
-      'X-Plex-Product': config.product,
-      'X-Plex-Version': config.version,
-      'X-Plex-Client-Identifier': config.clientIdentifier,
-      'X-Plex-Platform': _transcodePlatformName(),
       'X-Plex-Client-Profile-Name': 'Generic',
-      if (config.device != null) 'X-Plex-Device': config.device!,
-      if (config.deviceName != null) 'X-Plex-Device-Name': config.deviceName!,
-      if (config.token != null) 'X-Plex-Token': config.token!,
+      ..._transcodeClientParams(),
     };
   }
 
@@ -3142,15 +3122,21 @@ class PlexClient
       'session': transcodeSessionId,
       'X-Plex-Session-Identifier': sessionIdentifier,
       'X-Plex-Client-Profile-Extra': clientProfileExtra,
-      'X-Plex-Product': config.product,
-      'X-Plex-Version': config.version,
-      'X-Plex-Client-Identifier': config.clientIdentifier,
-      'X-Plex-Platform': _transcodePlatformName(),
-      if (config.device != null) 'X-Plex-Device': config.device!,
-      if (config.deviceName != null) 'X-Plex-Device-Name': config.deviceName!,
-      if (config.token != null) 'X-Plex-Token': config.token!,
+      ..._transcodeClientParams(),
     };
   }
+
+  /// Client identity every transcode decision/start request carries, shared by
+  /// the video and music parameter builders.
+  Map<String, String> _transcodeClientParams() => <String, String>{
+    'X-Plex-Product': config.product,
+    'X-Plex-Version': config.version,
+    'X-Plex-Client-Identifier': config.clientIdentifier,
+    'X-Plex-Platform': _transcodePlatformName(),
+    if (config.device != null) 'X-Plex-Device': config.device!,
+    if (config.deviceName != null) 'X-Plex-Device-Name': config.deviceName!,
+    if (config.token != null) 'X-Plex-Token': config.token!,
+  };
 
   @visibleForTesting
   Map<String, String> buildMusicTranscodeParamsForTesting({
@@ -3403,17 +3389,6 @@ class PlexClient
       totalCount: result.totalSize,
       offset: start ?? 0,
     );
-  }
-
-  @override
-  Future<LibraryPage<MediaItem>> fetchSeasonEpisodesPage(
-    String seriesId,
-    String seasonId, {
-    int? start,
-    int? size,
-    AbortController? abort,
-  }) {
-    return fetchChildrenPage(seasonId, start: start, size: size, abort: abort);
   }
 
   @override
@@ -3968,7 +3943,6 @@ class PlexClient
     return _buildTranscodeSidecarSubtitles(mediaInfo);
   }
 
-  /// Build list of external subtitle tracks from media info
   List<PlaybackSubtitleSidecar> _buildExternalSubtitles(MediaSourceInfo? mediaInfo) {
     final externalSubtitles = <PlaybackSubtitleSidecar>[];
 
@@ -4019,14 +3993,160 @@ class PlexClient
     return externalSubtitles;
   }
 
-  /// Plex's filter listing is lazy: categories come from
-  /// `/library/sections/{id}/filters` and values are fetched per category
-  /// when the user opens a filter. The result has empty [LibraryFilterResult.cachedValues];
-  /// the FiltersBottomSheet hits the per-category endpoint on demand.
+  /// Plex publishes its filterable fields and, per field type, the operators
+  /// it can evaluate in `/library/sections/{id}/all?includeMeta=1`. That is
+  /// the only source for exclusion, ranges and text matching; the legacy
+  /// `/filters` listing knows nothing but `string`/`integer`/`boolean` and is
+  /// kept as the fallback for servers that answer no metadata.
+  ///
+  /// Values stay lazy either way — [LibraryFilterResult.cachedValues] is
+  /// empty and the editor fetches a category's values when it is opened.
   @override
   Future<LibraryFilterResult> fetchLibraryFiltersWithValues(String libraryId, {MediaKind? libraryKind}) async {
-    final filters = await getLibraryFilters(libraryId);
-    return LibraryFilterResult(filters: filters, cachedValues: const {});
+    if (libraryId == 'shared') return LibraryFilterResult.empty;
+    final typeId = PlexMetadataType.forKind(libraryKind);
+    try {
+      final response = await _getWithFailover(
+        '/library/sections/$libraryId/all',
+        // Both pagination parameters: PMS ignores a lone `Size=0` and answers
+        // with the entire section (measured: 271 items / 462 KB on a show
+        // library, versus 0 items / 11 KB with `Start=0` present).
+        queryParameters: {'includeMeta': 1, ..._buildPaginationParams(0, 0), 'type': ?typeId},
+      );
+      final filters = _parseFilterMetadata(response, libraryId: libraryId, typeId: typeId);
+      if (filters.isNotEmpty) return LibraryFilterResult(filters: filters, cachedValues: const {});
+      appLogger.d('Plex section $libraryId returned no filter metadata; falling back to /filters');
+    } on MediaServerHttpException catch (e, stackTrace) {
+      if (e.isCancellation) rethrow;
+      appLogger.w('Plex filter metadata unavailable for section $libraryId', error: e, stackTrace: stackTrace);
+    }
+    final legacy = await getLibraryFilters(libraryId);
+    return LibraryFilterResult(filters: legacy, cachedValues: const {});
+  }
+
+  /// Parse `Meta.Type[].Field[]` (the filterable fields for the browsed type)
+  /// against `Meta.FieldType[].Operator[]` (what each field type can compare).
+  List<MediaFilter> _parseFilterMetadata(MediaServerResponse response, {required String libraryId, int? typeId}) {
+    final meta = _getMediaContainer(response)?['Meta'];
+    if (meta is! Map<String, dynamic>) return const [];
+
+    final operatorsByFieldType = <String, List<LibraryFilterOperator>>{};
+    final fieldTypes = meta['FieldType'];
+    if (fieldTypes is List) {
+      for (final entry in fieldTypes.whereType<Map<String, dynamic>>()) {
+        final fieldType = entry['type'];
+        final operators = entry['Operator'];
+        if (fieldType is! String || operators is! List) continue;
+        final parsed = operators
+            .whereType<Map<String, dynamic>>()
+            .map((op) => _plexOperatorFor(op['key']))
+            .whereType<LibraryFilterOperator>()
+            .toList();
+        if (parsed.isNotEmpty) operatorsByFieldType[fieldType] = parsed;
+      }
+    }
+
+    final types = meta['Type'];
+    if (types is! List) return const [];
+    Map<String, dynamic>? browsedType;
+    for (final entry in types.whereType<Map<String, dynamic>>()) {
+      final fields = entry['Field'];
+      if (fields is! List || fields.isEmpty) continue;
+      // `active` marks the type the request actually queried; without a
+      // `type=` parameter Plex marks the section's own type.
+      if (entry['active'] == true) {
+        browsedType = entry;
+        break;
+      }
+      browsedType ??= entry;
+    }
+    if (browsedType == null) return const [];
+
+    // Plex qualifies a field with its owning type (`show.genre`) whenever the
+    // section holds more than one type. The bare name is equivalent for the
+    // browsed type and is what the value endpoints and saved selections use,
+    // so strip only that prefix and leave cross-type fields qualified.
+    final ownPrefix = '${browsedType['type']}.';
+    final filters = <MediaFilter>[];
+    for (final field in (browsedType['Field'] as List).whereType<Map<String, dynamic>>()) {
+      final rawKey = field['key'];
+      final fieldType = field['type'];
+      final title = field['title'];
+      if (rawKey is! String || rawKey.isEmpty || fieldType is! String || title is! String) continue;
+      final wireField = rawKey.startsWith(ownPrefix) ? rawKey.substring(ownPrefix.length) : rawKey;
+      final bareField = wireField.contains('.') ? wireField.split('.').last : wireField;
+      filters.add(
+        MediaFilter(
+          filter: wireField,
+          filterType: _plexFilterTypeFor(fieldType),
+          key: _plexFilterValuesKey(fieldType, bareField, libraryId: libraryId, typeId: typeId),
+          title: title,
+          type: 'filter',
+          operators: operatorsByFieldType[fieldType] ?? MediaFilter.defaultOperatorsFor(_plexFilterTypeFor(fieldType)),
+          // `duration` is milliseconds and `mediaSize` is bytes; without the
+          // unit the editor would send the number as typed and `duration>>=90`
+          // would match every item.
+          unit: MediaFilterUnit.fromPlexSubType(field['subType']),
+        ),
+      );
+    }
+    if (filters.isEmpty) return const [];
+
+    // Undocumented but supported on movie and episode queries: a substring
+    // match over the item's full file path, which is the only way to filter
+    // by filename or folder. A show-type query answers 500 for it, so it is
+    // offered only where it works. [libraryKind] is a library kind, so only
+    // the movie case is reachable today; episode queries would need the
+    // schema refetched for the browsed grouping (see #2397 follow-up).
+    if (typeId == PlexMetadataType.movie) {
+      filters.add(
+        MediaFilter(
+          filter: MediaFilterField.file,
+          filterType: MediaFilterType.string,
+          key: '',
+          title: t.libraries.filterCategories.filePath,
+          type: 'filter',
+          operators: const [LibraryFilterOperator.is_, LibraryFilterOperator.isNot],
+        ),
+      );
+    }
+    return filters;
+  }
+
+  static LibraryFilterOperator? _plexOperatorFor(Object? key) => switch (key) {
+    '=' => LibraryFilterOperator.is_,
+    '!=' => LibraryFilterOperator.isNot,
+    '>>=' => LibraryFilterOperator.atLeast,
+    '<<=' => LibraryFilterOperator.atMost,
+    '==' => LibraryFilterOperator.matches,
+    '!==' => LibraryFilterOperator.notMatches,
+    '<=' => LibraryFilterOperator.beginsWith,
+    '>=' => LibraryFilterOperator.endsWith,
+    _ => null,
+  };
+
+  /// Plex's field-type vocabulary is wider than the editor's; anything that
+  /// enumerates values behaves like a tag, and the rest map straight across.
+  static String _plexFilterTypeFor(String plexFieldType) => switch (plexFieldType) {
+    'boolean' => MediaFilterType.boolean,
+    'integer' => MediaFilterType.integer,
+    'date' => MediaFilterType.date,
+    'string' => MediaFilterType.string,
+    _ => MediaFilterType.tag,
+  };
+
+  /// Value-listing endpoint for a field, or empty when Plex has no list for
+  /// it (free text, sizes, durations, dates).
+  static String _plexFilterValuesKey(String plexFieldType, String bareField, {required String libraryId, int? typeId}) {
+    const listedIntegers = {'year', 'decade'};
+    final listed = switch (plexFieldType) {
+      'boolean' || 'string' || 'date' => false,
+      'integer' => listedIntegers.contains(bareField),
+      _ => true,
+    };
+    if (!listed) return '';
+    final suffix = typeId == null ? '' : '?type=$typeId';
+    return '/library/sections/$libraryId/$bareField$suffix';
   }
 
   @override
@@ -4108,11 +4228,9 @@ class PlexClient
     MediaKind? libraryKind,
     AbortController? abort,
   }) async {
-    // Translate the neutral query back to Plex's flat key=value map. Plex's
-    // section endpoint takes filters verbatim — `PlexLibraryQueryTranslator`
-    // emits both typed slots (genre/year/contentRating/tag/alphaPrefix) and
-    // generic `query.filters` entries, matching what the legacy
-    // `plexStyleFilters` map carried.
+    // Translate the neutral query back to Plex's flat key=value query. The
+    // section endpoint takes filters verbatim, operators and all —
+    // `PlexLibraryQueryTranslator` lowers every clause.
     final filters = const PlexLibraryQueryTranslator().toQueryParameters(query);
     // Browse tab always asked for collections; preserve as Plex's default
     // server behaviour can vary across versions.
@@ -4125,11 +4243,6 @@ class PlexClient
       abort: abort,
     );
     return LibraryPage<MediaItem>(items: result.items, totalCount: result.totalSize, offset: query.offset);
-  }
-
-  @override
-  Future<List<LibraryFirstCharacter>> fetchFirstCharacters(String libraryId, {Map<String, String>? filters}) async {
-    return getFirstCharacters(libraryId, filters: filters);
   }
 
   /// [excludedLibraryIds] is unused: `/library/search` has no section-scoping
@@ -4291,7 +4404,7 @@ class PlexClient
     String sectionId, {
     int? start,
     int? size,
-    Map<String, String>? filters,
+    Map<String, dynamic>? filters,
     AbortController? abort,
   }) async {
     final result = await _getLibraryContent(sectionId, start: start, size: size, filters: filters, abort: abort);
@@ -4408,23 +4521,29 @@ class PlexClient
   /// tracker, watchlist and dedupe path blind to those libraries (#1788).
   ///
   /// The array wins per field; the scalar only fills what it left null.
+  ///
+  /// Only "no mapping" is empty — including a 404, the item having gone the
+  /// way the MediaBrowser side's `fetchItem` reports it. Every other request
+  /// failure propagates from [_getWithFailover] so callers can tell a server
+  /// outage from an unmatched item.
   @override
   Future<ExternalIds> fetchExternalIds(String itemId) async {
+    final MediaServerResponse response;
     try {
-      final response = await _getWithFailover('/library/metadata/$itemId', queryParameters: {'includeGuids': 1});
-      final data = response.data;
-      if (data is! Map) return const ExternalIds();
-      final metadata = (data['MediaContainer'] as Map?)?['Metadata'];
-      if (metadata is! List || metadata.isEmpty) return const ExternalIds();
-      final first = metadata.first;
-      if (first is! Map) return const ExternalIds();
-      final guids = first['Guid'];
-      final modern = guids is List ? ExternalIds.fromGuids(guids) : const ExternalIds();
-      return modern.fillFrom(ExternalIds.fromLegacyPlexGuid(first['guid']));
-    } catch (e) {
-      appLogger.d('fetchExternalIds failed for $itemId', error: e);
-      return const ExternalIds();
+      response = await _getWithFailover('/library/metadata/$itemId', queryParameters: {'includeGuids': 1});
+    } on MediaServerHttpException catch (e) {
+      if (e.statusCode == 404) return const ExternalIds();
+      rethrow;
     }
+    final data = response.data;
+    final container = data is Map ? data['MediaContainer'] : null;
+    final metadata = container is Map ? container['Metadata'] : null;
+    if (metadata is! List || metadata.isEmpty) return const ExternalIds();
+    final first = metadata.first;
+    if (first is! Map) return const ExternalIds();
+    final guids = first['Guid'];
+    final modern = guids is List ? ExternalIds.fromGuids(guids) : const ExternalIds();
+    return modern.fillFrom(ExternalIds.fromLegacyPlexGuid(first['guid']));
   }
 
   /// Map id-verified candidates to items, dropping any sequel the server does
@@ -4662,6 +4781,8 @@ class PlexClient
     sessionIdentifier: playSessionId,
   );
 
+  /// Plex persists remembered stream choices per part through [selectStreams],
+  /// so the indexes on the neutral surface have no timeline equivalent here.
   @override
   Future<void> reportPlaybackStopped({
     required String itemId,
@@ -4670,6 +4791,8 @@ class PlexClient
     String? playSessionId,
     String? liveStreamId,
     String? mediaSourceId,
+    int? audioStreamIndex,
+    int? subtitleStreamIndex,
     PlaybackReportMetadata report = const PlaybackReportMetadata.live(),
   }) => updateProgress(
     itemId,
@@ -4725,6 +4848,11 @@ class PlexClient
       externalSubtitles: subtitles,
     );
   }
+
+  /// Plex metadata rows already carry `librarySectionID`/`librarySectionTitle`,
+  /// so there is nothing to resolve.
+  @override
+  Future<MediaItem> stampLibrary(MediaItem item) => Future.value(item);
 
   @override
   List<DownloadArtworkSpec> resolveDownloadArtwork(MediaItem item) {

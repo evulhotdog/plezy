@@ -98,7 +98,7 @@ extension _VideoPlayerLifecycleMethods on VideoPlayerScreenState {
 
     final isAutomotive = PlatformDetector.isAutomotive();
     final shouldPauseForBackground = shouldPauseVideoForBackground(
-      isHandheld: PlatformDetector.isHandheld(context),
+      isHandheld: PlatformDetector.isMobile(context),
       isTv: isTv,
       isAutomotive: isAutomotive,
     );
@@ -300,6 +300,16 @@ extension _VideoPlayerLifecycleMethods on VideoPlayerScreenState {
       _progressTracker?.startTracking();
       appLogger.w('TV background suspend failed; player left paused', error: e);
       return;
+    }
+    // stop() releases the pipeline but leaves the display mode; a parked TV
+    // must hand the panel back to the launcher's mode, as dispose does. The
+    // restore reload re-runs the frame-rate startup plan for the next open.
+    if (mounted && !_shuttingDown && player == currentPlayer && !currentPlayer.disposed) {
+      try {
+        await currentPlayer.clearVideoFrameRate();
+      } catch (e) {
+        appLogger.w('TV background suspend: failed to clear the display mode', error: e);
+      }
     }
     await stoppedReport;
     if (!(_progressTracker?.stoppedReportDelivered ?? true)) {

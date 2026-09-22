@@ -55,11 +55,23 @@ internal object MediaCodecQuery {
     } != null
   }
 
-  /** Software MediaCodec AV1 components are not a hardware decode path (#2272). */
+  /** Whether a hardware AV1 decoder exists; software MediaCodec AV1 components do not count (#2272). */
   fun hardwareAv1Support(): Boolean = hardwareAv1.value
 
   private val hardwareAv1: Lazy<Boolean> = lazy {
     findHardwareDecoder("video/av01") != null
+  }
+
+  /**
+   * Whether the hardware AV1 decoder is Tensor's BigOcean block
+   * (`c2.google.av1.decoder`, Pixel 6+). Its vendor service dies when a new
+   * instance starts while the previous one is still being torn down (#2272);
+   * [com.edde746.plezy.mpv.GpuVoPolicy.needsParkedRebuild] keeps the two apart.
+   */
+  fun hardwareAv1IsBigOcean(): Boolean = bigOceanAv1.value
+
+  private val bigOceanAv1: Lazy<Boolean> = lazy {
+    findHardwareDecoder("video/av01")?.name?.lowercase(Locale.ROOT)?.startsWith("c2.google.av1") == true
   }
 
   fun findHardwareDecoder(
@@ -76,6 +88,56 @@ internal object MediaCodecQuery {
       }
     }
     return null
+  }
+
+  /**
+   * MediaFormat MIME type for an mpv/FFmpeg codec name, for the codecs a
+   * hardware decoder may serve; null for anything else.
+   */
+  fun mimeTypeForCodec(codec: String?): String? = when (codec?.lowercase(Locale.ROOT)) {
+    "h264" -> "video/avc"
+    "hevc" -> "video/hevc"
+    "av1" -> "video/av01"
+    "vp9" -> "video/x-vnd.on2.vp9"
+    "vp8" -> "video/x-vnd.on2.vp8"
+    "mpeg2video" -> "video/mpeg2"
+    "mpeg4" -> "video/mp4v-es"
+    else -> null
+  }
+
+  private val PERFORMANCE_POINT_RATES = intArrayOf(240, 120, 90, 60, 50, 30, 25, 24)
+
+  /**
+   * The highest frame rate the hardware decoder for [mimeType] advertises at
+   * [width]x[height]: the manufacturer's performance points on API 31+, the
+   * capability range below it. Null when there is no hardware decoder, the
+   * size is outside what it declares, or the platform answers nothing —
+   * the caller then applies its own ceiling.
+   */
+  fun maxDecoderFrameRate(mimeType: String, width: Int, height: Int): Int? {
+    if (width <= 0 || height <= 0) return null
+    val info = findHardwareDecoder(mimeType) ?: return null
+    val video = try {
+      info.getCapabilitiesForType(mimeType).videoCapabilities
+    } catch (e: IllegalArgumentException) {
+      return null
+    } ?: return null
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+      val points = video.supportedPerformancePoints
+      if (!points.isNullOrEmpty()) {
+        // The platform exposes only coverage, not the point's own rate:
+        // ask for the rates a declaration would use, highest first.
+        for (rate in PERFORMANCE_POINT_RATES) {
+          val wanted = MediaCodecInfo.VideoCapabilities.PerformancePoint(width, height, rate)
+          if (points.any { it.covers(wanted) }) return rate
+        }
+      }
+    }
+    return try {
+      video.getSupportedFrameRatesFor(width, height).upper.toInt().takeIf { it > 0 }
+    } catch (e: IllegalArgumentException) {
+      null
+    }
   }
 
   fun isHardwareAccelerated(info: MediaCodecInfo): Boolean {
@@ -105,12 +167,17 @@ internal object MediaCodecQuery {
     }
   }
 
+  /**
+   * Component names Android itself ships as software. `c2.google.*` is not
+   * one of them: it is the Tensor vendor prefix (`c2.google.av1.decoder` is
+   * the BigOcean hardware AV1 block on Pixel 6+), and API 29's platform flag
+   * classifies it (#2272). Google's software components are `c2.android.*`.
+   */
   internal fun isSoftwareCodecName(name: String): Boolean {
     val normalized = name.lowercase(Locale.ROOT)
     return normalized.startsWith("omx.google.") ||
       normalized.startsWith("omx.ffmpeg.") ||
       normalized.startsWith("c2.android.") ||
-      normalized.startsWith("c2.google.") ||
       normalized.startsWith("c2.ffmpeg.") ||
       normalized.contains(".sw.")
   }

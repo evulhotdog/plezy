@@ -2,6 +2,7 @@ import 'dart:async';
 import '../media/ids.dart';
 import '../media/media_server_client.dart';
 import '../navigation/main_screen_scope.dart';
+import '../navigation/page_refresh_shortcut.dart';
 import 'dart:io' show Platform, exit;
 
 export '../navigation/main_screen_scope.dart'
@@ -58,6 +59,7 @@ import '../services/fullscreen_state_manager.dart';
 import '../providers/companion_remote_provider.dart';
 import '../utils/desktop_window_padding.dart';
 import '../widgets/music/mini_player.dart';
+import '../widgets/navigation_label_fit.dart';
 import '../widgets/mobile_navigation_rail.dart';
 import '../widgets/side_navigation_rail.dart';
 import '../focus/dpad_navigator.dart';
@@ -448,8 +450,9 @@ class _MainScreenState extends State<MainScreen>
   bool _isSidebarFocused = false;
   // Hover/touch rail expansion is an M3E modal overlay: the rail draws over
   // the content, so this only drives the scrim behind it — never the
-  // content offset.
-  bool _isSidebarInteractionExpanded = false;
+  // content offset. Docked expansion (always-open, D-pad focus) displaces
+  // content instead and reports no floating panel.
+  bool _isSidebarFloatingPanel = false;
   bool _isOverlaySheetOpen = false;
 
   /// The binder is now owned by a top-level [Provider] (see main.dart) so
@@ -1622,6 +1625,10 @@ class _MainScreenState extends State<MainScreen>
         : KeyEventResult.ignored;
   }
 
+  KeyEventResult _handlePageRefreshShortcut(KeyEvent event) {
+    return dispatchPageRefreshShortcut(event, _screenKeys[_currentTab]?.currentState);
+  }
+
   /// Handle Cmd+F (macOS) / Ctrl+F (Windows/Linux) to navigate to search.
   KeyEventResult _handleSearchShortcut(KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
@@ -1899,7 +1906,6 @@ class _MainScreenState extends State<MainScreen>
   /// Updated by _handleLiveTvChanged when the provider notifies.
   bool get _hasLiveTv => _lastHasLiveTv;
 
-  /// Get navigation tabs filtered by offline mode
   List<NavigationTab> _getVisibleTabs(bool isOffline) {
     return NavigationTab.getVisibleTabs(isOffline: isOffline, hasLiveTv: _hasLiveTv, hasExplore: _lastHasExplore);
   }
@@ -1955,19 +1961,31 @@ class _MainScreenState extends State<MainScreen>
     );
 
     final librariesIndex = tabs.indexWhere((tab) => tab.id == NavigationTabId.libraries);
-    if (librariesIndex < 0 || tabs.isEmpty) return navigationBar;
+    if (tabs.isEmpty) return navigationBar;
 
     return LayoutBuilder(
       builder: (context, constraints) {
         if (!constraints.hasBoundedWidth) return navigationBar;
 
+        // A destination gets an equal share of the bar and spends all of it on
+        // the label, so that share is what the labels have to fit into.
         final itemWidth = constraints.maxWidth / tabs.length;
+        final bar = hideLabels
+            ? navigationBar
+            : NavigationLabelScale(
+                labels: [for (final tab in tabs) tab.getLabel()],
+                labelWidth: itemWidth,
+                style: navigationBarLabelStyle(context),
+                child: navigationBar,
+              );
+        if (librariesIndex < 0) return bar;
+
         final isRtl = Directionality.of(context) == TextDirection.rtl;
         final left = isRtl ? constraints.maxWidth - (itemWidth * (librariesIndex + 1)) : itemWidth * librariesIndex;
 
         return Stack(
           children: [
-            navigationBar,
+            bar,
             Positioned(
               left: left,
               top: 0,
@@ -2035,6 +2053,8 @@ class _MainScreenState extends State<MainScreen>
                 if (rootEscapeResult == KeyEventResult.handled) return rootEscapeResult;
                 final fullscreenResult = _handleFullscreenShortcut(event);
                 if (fullscreenResult == KeyEventResult.handled) return fullscreenResult;
+                final refreshResult = _handlePageRefreshShortcut(event);
+                if (refreshResult == KeyEventResult.handled) return refreshResult;
                 final searchResult = _handleSearchShortcut(event);
                 if (searchResult == KeyEventResult.handled) return searchResult;
                 final settingsResult = _handleSettingsShortcut(event);
@@ -2100,7 +2120,7 @@ class _MainScreenState extends State<MainScreen>
                           Positioned.fill(
                             child: IgnorePointer(
                               child: AnimatedOpacity(
-                                opacity: _isSidebarInteractionExpanded ? 1.0 : 0.0,
+                                opacity: _isSidebarFloatingPanel ? 1.0 : 0.0,
                                 duration: SideNavigationRailState.expandDuration,
                                 curve: SideNavigationRailState.expandCurve,
                                 child: const ColoredBox(color: Color(0x66000000)),
@@ -2131,9 +2151,9 @@ class _MainScreenState extends State<MainScreen>
                                   _focusContent(restorePreviousFocus: false);
                                 },
                                 onNavigateToContent: _focusContent,
-                                onInteractionExpandedChanged: (expanded) {
-                                  if (_isSidebarInteractionExpanded == expanded) return;
-                                  setState(() => _isSidebarInteractionExpanded = expanded);
+                                onFloatingPanelChanged: (floating) {
+                                  if (_isSidebarFloatingPanel == floating) return;
+                                  setState(() => _isSidebarFloatingPanel = floating);
                                 },
                                 onReconnect: _triggerReconnect,
                               ),

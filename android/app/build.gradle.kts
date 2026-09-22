@@ -1,55 +1,7 @@
 import java.io.FileInputStream
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
 import java.util.Properties
 import java.util.UUID
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-
-fun verifySha256(file: File, expected: String, identity: String) {
-  val digest = MessageDigest.getInstance("SHA-256")
-  file.inputStream().buffered().use { input ->
-    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-    while (true) {
-      val count = input.read(buffer)
-      if (count < 0) break
-      digest.update(buffer, 0, count)
-    }
-  }
-  val actual = digest.digest().joinToString("") {
-    (it.toInt() and 0xff).toString(16).padStart(2, '0')
-  }
-  if (actual != expected) {
-    throw GradleException("SHA-256 mismatch for $identity: expected $expected, got $actual")
-  }
-}
-
-fun promoteDirectory(staging: File, destination: File) {
-  val backup = File(destination.parentFile, "${destination.name}.backup-${UUID.randomUUID()}")
-  val hadDestination = destination.exists()
-  try {
-    if (hadDestination) {
-      Files.move(destination.toPath(), backup.toPath(), StandardCopyOption.ATOMIC_MOVE)
-    }
-    try {
-      Files.move(staging.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE)
-    } catch (promotionFailure: Exception) {
-      if (hadDestination && backup.exists()) {
-        try {
-          Files.move(backup.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE)
-        } catch (restoreFailure: Exception) {
-          promotionFailure.addSuppressed(restoreFailure)
-        }
-      }
-      throw promotionFailure
-    }
-    if (hadDestination && backup.exists() && !backup.deleteRecursively()) {
-      throw GradleException("Failed to remove obsolete native artifact backup at ${backup.absolutePath}")
-    }
-  } finally {
-    staging.deleteRecursively()
-  }
-}
 
 plugins {
   id("com.android.application")
@@ -58,14 +10,23 @@ plugins {
   id("dev.flutter.flutter-gradle-plugin")
 }
 
+apply(from = rootProject.file("gradle/native-artifacts.gradle.kts"))
+
+@Suppress("UNCHECKED_CAST")
+val verifySha256 = extra["verifySha256"] as (File, String, String) -> Unit
+
+@Suppress("UNCHECKED_CAST")
+val promoteDirectory = extra["promoteDirectory"] as (File, File) -> Unit
+
 // The in-project :libmpv module owns the mpv-build pin (repo-root
 // mpv-build.lock.json assets + checksums, plus the plezy.localMpvDir/
 // PLEZY_LOCAL_MPV_DIR escape hatch) and extracts the per-ABI tarballs'
-// prebuilt native libraries. This file reads two of its output trees
-// back: FFmpeg .so files for the Media3 adapter link step, and the libc++
-// runtime packaged at PROJECT scope below.
+// prebuilt native libraries. This file reads FFmpeg .so files from both native
+// output trees for the Media3 adapter link step, and packages the libc++ runtime
+// at PROJECT scope below.
 val libmpvBuildDir = project(":libmpv").layout.buildDirectory.dir("libmpv").get().asFile
 val libmpvNativeJniDir = File(libmpvBuildDir, "native/jni")
+val libmpvNativeImportedDir = File(libmpvBuildDir, "native/imported")
 val libmpvLibcxxJniDir = File(libmpvBuildDir, "libcxx/jni")
 
 val media3Version = "1.11.0"
@@ -83,6 +44,7 @@ val prepareMpvFfmpegDevelopment = tasks.register("prepareMpvFfmpegDevelopment") 
   val abis = listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
   val libraries = listOf("avcodec", "avutil", "swresample")
   inputs.dir(libmpvNativeJniDir)
+  inputs.dir(libmpvNativeImportedDir)
   inputs.property("ffmpegVersion", mpvFfmpegVersion)
   inputs.property("sourceUrl", mpvFfmpegSourceUrl)
   inputs.property("sourceSha256", mpvFfmpegSourceSha256)
@@ -152,9 +114,11 @@ val prepareMpvFfmpegDevelopment = tasks.register("prepareMpvFfmpegDevelopment") 
       )
 
       project.copy {
+        from(libmpvNativeImportedDir) {
+          include("*/libavcodec.so")
+        }
         from(libmpvNativeJniDir) {
           include(
-            "*/libavcodec.so",
             "*/libavutil.so",
             "*/libswresample.so"
           )

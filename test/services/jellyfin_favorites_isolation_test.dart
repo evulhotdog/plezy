@@ -5,9 +5,9 @@ import 'package:http/testing.dart';
 
 import 'package:plezy/connection/connection.dart';
 import 'package:plezy/models/livetv_channel.dart';
+import 'package:plezy/services/base_shared_preferences_service.dart';
 import 'package:plezy/services/favorite_channels_repository.dart';
 import 'package:plezy/services/jellyfin_client.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../test_helpers/backend_client_fixtures.dart';
 import '../test_helpers/prefs.dart';
@@ -47,7 +47,7 @@ void main() {
       final connB = _conn(userId: 'user-b');
 
       // Pre-seed user A's favorites under the compound key, leave user B empty.
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await BaseSharedPreferencesService.sharedCache();
       await prefs.setString(_favKey(connA), _encodeFavorites([_ch('chan-a1'), _ch('chan-a2')]));
 
       final aFavs = await _client(connA).liveTv.fetchFavoriteChannels();
@@ -61,7 +61,7 @@ void main() {
       final connA = _conn(userId: 'user-a');
 
       // Pre-seed legacy entry only.
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await BaseSharedPreferencesService.sharedCache();
       await prefs.setString(_legacyFavKey(connA), _encodeFavorites([_ch('legacy-1')]));
 
       final aFavs = await _client(connA).liveTv.fetchFavoriteChannels();
@@ -90,8 +90,13 @@ class _ThrowingFavoriteChannelsRepository implements FavoriteChannelsRepository 
   final Object failure;
 
   @override
-  Future<List<FavoriteChannel>> read({required String key, required String legacyKey}) => Future.error(failure);
+  Future<List<FavoriteChannel>> read({
+    required String key,
+    required String legacyKey,
+    bool migrate = true,
+    void Function()? checkCurrent,
+  }) => Future.error(failure);
 
   @override
-  Future<void> write(String key, List<FavoriteChannel> channels) async {}
+  Future<void> write(String key, List<FavoriteChannel> channels, {void Function()? checkCurrent}) async {}
 }

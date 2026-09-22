@@ -40,12 +40,9 @@ class ShaderAssetLoader {
     'clamp': 'anime4k/Anime4K_Clamp_Highlights.glsl',
     'restore_m': 'anime4k/Anime4K_Restore_CNN_M.glsl',
     'restore_vl': 'anime4k/Anime4K_Restore_CNN_VL.glsl',
-    'restore_ul': 'anime4k/Anime4K_Restore_CNN_UL.glsl',
     'upscale_m': 'anime4k/Anime4K_Upscale_CNN_x2_M.glsl',
     'upscale_vl': 'anime4k/Anime4K_Upscale_CNN_x2_VL.glsl',
-    'upscale_ul': 'anime4k/Anime4K_Upscale_CNN_x2_UL.glsl',
     'downscale': 'anime4k/Anime4K_AutoDownscalePre_x2.glsl',
-    'downscale_post': 'anime4k/Anime4K_AutoDownscalePre_x4.glsl',
   };
 
   /// Get the application-owned shader cache directory, creating it if needed.
@@ -172,7 +169,8 @@ class ShaderAssetLoader {
   }
 
   /// Get the shader file path for an ArtCNN preset.
-  /// Returns a list containing exactly one ArtCNN shader path.
+  /// Returns a single-element list, or an empty list when the shader could
+  /// not be extracted to disk.
   static Future<List<String>> getArtCNNShaders(ArtCNNConfig config) async {
     final shaderPath = await _extractShader(_artcnnShaders['${config.model.name}_${config.variant.slug}']!);
     if (shaderPath == null) return [];
@@ -236,21 +234,22 @@ class ShaderAssetLoader {
 
   /// Import a custom shader file into the custom shaders directory.
   /// Returns the stored file name (UUID-based to avoid collisions).
-  static Future<String> importCustomShader(String sourcePath) async {
+  static Future<String> importCustomShader(String sourcePath, {void Function()? checkCurrent}) async {
     if (path.extension(sourcePath).toLowerCase() != '.glsl') {
       throw ArgumentError.value(sourcePath, 'sourcePath', 'Custom shaders must use the .glsl extension');
     }
 
     final customDir = await _getCustomShaderDirectory();
+    checkCurrent?.call();
     final storedName = '${const Uuid().v4()}.glsl';
     await File(sourcePath).copy(path.join(customDir, storedName));
     return storedName;
   }
 
-  /// Delete a custom shader file from the custom shaders directory.
-  static Future<void> deleteCustomShader(String fileName) async {
+  static Future<void> deleteCustomShader(String fileName, {void Function()? checkCurrent}) async {
     final file = await _resolveManagedCustomShaderFile(fileName);
     if (file != null && await file.exists()) {
+      checkCurrent?.call();
       await file.delete();
     }
   }

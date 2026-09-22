@@ -66,7 +66,7 @@ mixin _JellyfinPlaybackMethods on _JellyfinClientInternals {
     bool forceChapterFallback = false,
     bool forceRefresh = false,
   }) async {
-    final item = await fetchItemFreshCacheFirst(itemId);
+    final item = forceRefresh ? await fetchItem(itemId) : await fetchItemFreshCacheFirst(itemId);
     final markers = item == null ? const <MediaMarker>[] : await _fetchMediaSegmentMarkers(itemId);
     return jellyfinPlaybackExtrasFromRaw(
       item?.raw,
@@ -698,6 +698,7 @@ mixin _JellyfinPlaybackMethods on _JellyfinClientInternals {
     String? playSessionId,
     String? liveStreamId,
     int? audioStreamIndex,
+    bool containerExtension = false,
   }) {
     return buildJellyfinDirectStreamUrl(
       baseUrl: connection.baseUrl,
@@ -710,6 +711,7 @@ mixin _JellyfinPlaybackMethods on _JellyfinClientInternals {
       playSessionId: playSessionId,
       liveStreamId: liveStreamId,
       audioStreamIndex: audioStreamIndex,
+      containerExtension: containerExtension,
     );
   }
 
@@ -717,7 +719,12 @@ mixin _JellyfinPlaybackMethods on _JellyfinClientInternals {
   /// same `Static=true` + token query + `DeviceId` self-authentication. Used
   /// for track direct-play fallback, downloads, and external players.
   @override
-  String buildAudioDirectStreamUrl(String itemId, {String? container, String? mediaSourceId}) {
+  String buildAudioDirectStreamUrl(
+    String itemId, {
+    String? container,
+    String? mediaSourceId,
+    bool containerExtension = false,
+  }) {
     return buildJellyfinDirectStreamUrl(
       baseUrl: connection.baseUrl,
       accessToken: connection.accessToken,
@@ -727,6 +734,7 @@ mixin _JellyfinPlaybackMethods on _JellyfinClientInternals {
       mediaSegment: 'Audio',
       container: container,
       mediaSourceId: mediaSourceId,
+      containerExtension: containerExtension,
     );
   }
 
@@ -792,41 +800,37 @@ mixin _JellyfinPlaybackMethods on _JellyfinClientInternals {
     /// the selected subtitle into a transcode instead of serving it alongside.
     bool burnSubtitles = false,
   }) async {
-    final query = <String, String>{
-      'userId': connection.userId,
-      'MaxStreamingBitrate': ?maxStreamingBitrate?.toString(),
+    // The same negotiation fields go out stringified in the query string and
+    // typed in the body.
+    final negotiation = <String, Object>{
+      'MaxStreamingBitrate': ?maxStreamingBitrate,
       'MediaSourceId': ?mediaSourceId,
       'LiveStreamId': ?liveStreamId,
-      'StartTimeTicks': ?startTimeTicks?.toString(),
-      'AudioStreamIndex': ?audioStreamIndex?.toString(),
-      'SubtitleStreamIndex': ?subtitleStreamIndex?.toString(),
-      'AutoOpenLiveStream': ?autoOpenLiveStream?.toString(),
-      'EnableDirectPlay': ?enableDirectPlay?.toString(),
-      'EnableDirectStream': ?enableDirectStream?.toString(),
-      'EnableTranscoding': ?enableTranscoding?.toString(),
-      'AllowVideoStreamCopy': ?allowVideoStreamCopy?.toString(),
-      'AllowAudioStreamCopy': ?allowAudioStreamCopy?.toString(),
+      'StartTimeTicks': ?startTimeTicks,
+      'AudioStreamIndex': ?audioStreamIndex,
+      'SubtitleStreamIndex': ?subtitleStreamIndex,
+      'AutoOpenLiveStream': ?autoOpenLiveStream,
+      'EnableDirectPlay': ?enableDirectPlay,
+      'EnableDirectStream': ?enableDirectStream,
+      'EnableTranscoding': ?enableTranscoding,
+      'AllowVideoStreamCopy': ?allowVideoStreamCopy,
+      'AllowAudioStreamCopy': ?allowAudioStreamCopy,
     };
     final response = await _http.post(
       '/Items/${_segment(itemId)}/PlaybackInfo',
-      queryParameters: query,
+      queryParameters: {
+        'userId': connection.userId,
+        for (final MapEntry(:key, :value) in negotiation.entries) key: value.toString(),
+      },
       // Opening a cold tuner can delay response headers beyond the normal
-      // connect budget (#2274). Keep VOD and metadata-only requests unchanged.
-      timeout: isLiveTv && autoOpenLiveStream == true ? MediaServerTimeouts.tune : null,
+      // connect budget (#2274), and the server finishes the open even if we
+      // hang up (#2394): the live tune keeps its transport until the server
+      // answers, and its caller bounds the wait. Keep VOD and metadata-only
+      // requests unchanged.
+      timeout: isLiveTv && autoOpenLiveStream == true ? MediaServerTimeouts.tuneTransport : null,
       body: {
         'UserId': connection.userId,
-        'MaxStreamingBitrate': ?maxStreamingBitrate,
-        'MediaSourceId': ?mediaSourceId,
-        'LiveStreamId': ?liveStreamId,
-        'StartTimeTicks': ?startTimeTicks,
-        'AudioStreamIndex': ?audioStreamIndex,
-        'SubtitleStreamIndex': ?subtitleStreamIndex,
-        'AutoOpenLiveStream': ?autoOpenLiveStream,
-        'EnableDirectPlay': ?enableDirectPlay,
-        'EnableDirectStream': ?enableDirectStream,
-        'EnableTranscoding': ?enableTranscoding,
-        'AllowVideoStreamCopy': ?allowVideoStreamCopy,
-        'AllowAudioStreamCopy': ?allowAudioStreamCopy,
+        ...negotiation,
         'DeviceProfile': <String, Object?>{
           'Name': 'Plezy',
           'MaxStreamingBitrate': ?maxStreamingBitrate,
@@ -889,7 +893,7 @@ mixin _JellyfinPlaybackMethods on _JellyfinClientInternals {
           'DirectPlayProfiles': <Map<String, Object?>>[
             {
               'Type': 'Video',
-              'Container': 'mp4,mkv,m4v,webm,mov,ts',
+              'Container': 'mp4,mkv,m4v,webm,mov,ts,mpegts',
               'VideoCodec': _jellyfinDirectPlayVideoCodecs(),
               // No `AudioCodec`: an omitted list means "any codec" to
               // Jellyfin. mpv decodes every audio codec these containers can
@@ -1086,6 +1090,10 @@ mixin _JellyfinPlaybackMethods on _JellyfinClientInternals {
 
   /// End-of-playback signal. Final position becomes the resume bookmark.
   /// [duration] is accepted for interface symmetry with Plex but ignored.
+  ///
+  /// The stream indexes ride this call too, not just the progress pings: a
+  /// pick made inside the last progress interval would otherwise never reach
+  /// the server, leaving the remembered selection at its previous value.
   @override
   Future<void> reportPlaybackStopped({
     required String itemId,
@@ -1094,6 +1102,8 @@ mixin _JellyfinPlaybackMethods on _JellyfinClientInternals {
     String? playSessionId,
     String? liveStreamId,
     String? mediaSourceId,
+    int? audioStreamIndex,
+    int? subtitleStreamIndex,
     PlaybackReportMetadata report = const PlaybackReportMetadata.live(),
   }) async {
     final response = await _http.post(
@@ -1101,6 +1111,8 @@ mixin _JellyfinPlaybackMethods on _JellyfinClientInternals {
       body: {
         'ItemId': itemId,
         'MediaSourceId': ?mediaSourceId,
+        'AudioStreamIndex': ?audioStreamIndex,
+        'SubtitleStreamIndex': ?subtitleStreamIndex,
         'PositionTicks': msToJellyfinTicks(position.inMilliseconds),
         'Failed': false,
         'PlaySessionId': ?_resolvePlaySessionId(playSessionId, itemId),

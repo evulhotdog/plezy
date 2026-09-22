@@ -62,12 +62,6 @@ class PlayerAndroid extends PlayerBase {
   @override
   bool get supportsSecondarySubtitles => false;
 
-  // ExoPlayer attaches external subtitles to the MediaItem before prepare;
-  // the Android mpv fallback mirrors PlayerNative by passing sub-files through
-  // loadfile options.
-  @override
-  bool get attachesExternalSubtitlesAtOpen => true;
-
   // The fallback runs mpv over MediaCodec — the same display-switch decoder
   // constraint as PlayerNative on Android. The whole startup-gate chain
   // (setVideoFrameRate, playback-restart, seek/drop-buffers refresh,
@@ -285,19 +279,6 @@ class PlayerAndroid extends PlayerBase {
     await invoke('selectSubtitleTrack', {'trackId': track.id});
   }
 
-  /// A sidecar flagged default must not draw itself onto a hidden renderer
-  /// either; the selection pass that follows the add records it the same way
-  /// [selectSubtitleTrack] does.
-  @override
-  Future<void> addSubtitleTrack({required String uri, String? title, String? language, bool select = false}) async {
-    await invoke('addSubtitleTrack', {
-      'uri': uri,
-      'title': title,
-      'language': language,
-      'select': select && !_subtitlesHidden,
-    });
-  }
-
   @override
   Future<void> setVolume(double volume) async {
     await invoke('setVolume', {'volume': volume});
@@ -437,10 +418,17 @@ class PlayerAndroid extends PlayerBase {
         final stats = await getStats();
         final mode = stats['dvConversionDebugMode'];
         return mode?.toString().toLowerCase();
+      // ExoPlayer detects the rate from rendered frames (`videoFps`); its mpv
+      // fallback core reports mpv's own keys. Neither is observable, so the
+      // display-matching read goes through one stats round trip.
       case 'container-fps':
-        final fpsStats = await getStats();
-        final fps = fpsStats['videoFps'];
+        final stats = await getStats();
+        final fps = stats['container-fps'] ?? stats['videoFps'];
         return fps?.toString();
+      case 'estimated-vf-fps':
+      case 'deinterlace-active':
+        final stats = await getStats();
+        return stats[name]?.toString();
       case 'width':
       case 'dwidth':
         final stats = await getStats();

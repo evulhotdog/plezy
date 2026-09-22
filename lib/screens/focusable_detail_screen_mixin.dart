@@ -7,7 +7,6 @@ import '../media/media_item.dart';
 import '../mixins/grid_focus_node_mixin.dart';
 import '../services/settings_service.dart';
 import '../utils/platform_detector.dart';
-import '../widgets/ios_status_bar_tap_scroll_to_top.dart';
 import '../widgets/settings_builder.dart';
 import '../widgets/focusable_media_card.dart';
 import '../widgets/media_card_sliver_layout.dart';
@@ -38,7 +37,6 @@ mixin FocusableDetailScreenMixin<T extends StatefulWidget> on State<T>, GridFocu
   /// Called when items are available and we want to check if focus should be set
   bool get hasItems;
 
-  /// Called to get the list of app bar action configurations
   List<FocusableAction> getAppBarActions();
 
   /// Dispose focus-related resources. Call this from your dispose() method.
@@ -84,7 +82,9 @@ mixin FocusableDetailScreenMixin<T extends StatefulWidget> on State<T>, GridFocu
 
   /// Wrap [slivers] in the standard detail-screen scaffold — an overlay-sheet
   /// host that defers route back to [handleBackNavigation], plus a Scaffold
-  /// with a CustomScrollView bound as the primary scroll view. Callers build
+  /// with a CustomScrollView bound as the primary scroll view. The
+  /// [PrimaryScrollController] wrapper is what lets the Scaffold find the
+  /// scroll view for the iOS status-bar scroll-to-top tap. Callers build
   /// the slivers themselves (typically
   /// `[appBar, ...header, ...buildStateSlivers(), grid]`); a trailing
   /// [SliverSystemBottomInset] is appended so the last row clears the system
@@ -105,18 +105,15 @@ mixin FocusableDetailScreenMixin<T extends StatefulWidget> on State<T>, GridFocu
     }
     return PrimaryScrollController(
       controller: scrollController,
-      child: IosStatusBarTapScrollToTop(
-        controller: scrollController,
-        child: OverlaySheetHost(
-          canPop: PlatformDetector.isHandheldIOS(context),
-          onSystemBack: () {
-            if (BackKeyCoordinator.consumeIfHandled()) return;
-            if (handleBackNavigation() && mounted) {
-              Navigator.pop(context);
-            }
-          },
-          child: Scaffold(body: body),
-        ),
+      child: OverlaySheetHost(
+        canPop: PlatformDetector.isHandheldIOS(context),
+        onSystemBack: () {
+          if (BackKeyCoordinator.consumeIfHandled()) return;
+          if (handleBackNavigation() && mounted) {
+            Navigator.pop(context);
+          }
+        },
+        child: Scaffold(body: body),
       ),
     );
   }

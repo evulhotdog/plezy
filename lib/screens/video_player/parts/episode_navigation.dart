@@ -21,6 +21,29 @@ extension _VideoPlayerEpisodeNavigationMethods on VideoPlayerScreenState {
     _chromeController.show(focusPlayPause: true);
   }
 
+  /// Whether the transport's next/previous commands have somewhere to go.
+  ///
+  /// One answer for every entry point — the on-screen buttons, the OS media
+  /// session and the companion remote — so no surface can advertise a step
+  /// another refuses. Live TV steps through the channel list, and each
+  /// direction is answered by its own list adjacency. Off live, `next` needs
+  /// a loaded next item, while `previous` always has a target for an episode:
+  /// [_restartOrPlayPrevious] restarts when nothing earlier is loaded.
+  bool get _hasNextItem => widget.isLive ? _hasNextChannel : _episode.next != null;
+
+  bool get _hasPreviousItem =>
+      widget.isLive ? _hasPreviousChannel : _currentMetadata.isEpisode || _episode.previous != null;
+
+  /// The transport's next command: a channel zap on live TV, the next
+  /// episode/queue item otherwise. Both targets no-op without one.
+  Future<void> _navigateToNextItem() => widget.isLive ? _switchLiveChannel(1) : _playNext();
+
+  /// The transport's previous command: a channel zap on live TV; otherwise a
+  /// restart or the previous item. A live stream has no "restart" — an
+  /// absolute seek to zero would drag the playhead off the live edge — so
+  /// the VOD fallback is unreachable here by construction.
+  Future<void> _navigateToPreviousItem() => widget.isLive ? _switchLiveChannel(-1) : _restartOrPlayPrevious();
+
   Future<void> _playNext() async {
     if (!_canNavigateMediaItems()) return;
     if (!mounted) return;
@@ -85,13 +108,9 @@ extension _VideoPlayerEpisodeNavigationMethods on VideoPlayerScreenState {
     _mediaControls.pushPlaybackState();
   }
 
-  /// Replace this screen with a fresh player route — the fallback for flows
-  /// the in-place reload cannot serve. Marks the screen as being replaced so
-  /// dispose skips the app-level player-exit side effects the replacement
-  /// route takes over (WT host-exit notify, sleep timer, system UI restore,
-  /// display mode).
+  /// Replace this screen when an in-place reload cannot serve the new item.
+  /// The route commit owns player-to-player teardown semantics.
   Future<void> _replaceScreenWithPlayer(MediaItem metadata, {WatchPlaybackLease? watchTogetherLease}) async {
-    _isReplacingWithVideo = true; // before any await — dispose can run mid-helper
     watchTogetherLease ??= _activeWatchTogetherSession()?.capturePlaybackLease(selection: true);
     try {
       await navigateToVideoPlayer(
@@ -102,10 +121,8 @@ extension _VideoPlayerEpisodeNavigationMethods on VideoPlayerScreenState {
         watchTogetherLease: watchTogetherLease,
       );
     } finally {
-      // Still mounted ⇒ no push happened (external-player branch or a
-      // throw): this screen stays, so restore normal-exit semantics.
+      // No route commit (external player or failure): keep this screen usable.
       if (mounted) {
-        _isReplacingWithVideo = false;
         _clearEpisodeLoadingFlags();
       }
     }
@@ -184,7 +201,7 @@ extension _VideoPlayerEpisodeNavigationMethods on VideoPlayerScreenState {
     } catch (e, stackTrace) {
       appLogger.e('Failed to navigate to the next item', error: e, stackTrace: stackTrace);
       _clearEpisodeLoadingFlags();
-      if (mounted) showErrorSnackBar(context, t.messages.errorLoading(error: e.toString()));
+      if (mounted) showErrorSnackBar(context, t.messages.errorLoading(error: localizedErrorReason(e)));
       return MediaReloadOutcome.failed;
     }
   }

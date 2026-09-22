@@ -678,6 +678,9 @@ class Translations$settings$en {
 	/// en: 'Remember audio and subtitle choices per title'
 	String get rememberTrackSelectionsDescription => 'Remember audio and subtitle choices per title';
 
+	/// en: 'Plex saves each choice on the server per file; Jellyfin also turns on the account's Remember selections; Emby is not supported'
+	String get rememberTrackSelectionsBackendRule => 'Plex saves each choice on the server per file; Jellyfin also turns on the account\'s Remember selections; Emby is not supported';
+
 	/// en: 'Use server's per-episode track selections'
 	String get followServerTrackSelections => 'Use server\'s per-episode track selections';
 
@@ -858,6 +861,12 @@ class Translations$settings$en {
 	/// en: 'Start the next episode automatically when one ends'
 	String get autoPlayNextEpisodeDescription => 'Start the next episode automatically when one ends';
 
+	/// en: 'Shuffle Starts at Beginning'
+	String get shuffleStartsFromBeginning => 'Shuffle Starts at Beginning';
+
+	/// en: 'Start each episode at the beginning when shuffling instead of resuming'
+	String get shuffleStartsFromBeginningDescription => 'Start each episode at the beginning when shuffling instead of resuming';
+
 	/// en: 'Play Next Countdown'
 	String get playNextCountdown => 'Play Next Countdown';
 
@@ -1005,6 +1014,12 @@ class Translations$settings$en {
 	/// en: 'Allow mobile devices on your network to control this app'
 	String get companionRemoteServerDescription => 'Allow mobile devices on your network to control this app';
 
+	/// en: 'Couldn't start the companion server'
+	String get companionRemoteServerStartFailed => 'Couldn\'t start the companion server';
+
+	/// en: 'Couldn't stop the companion server'
+	String get companionRemoteServerStopFailed => 'Couldn\'t stop the companion server';
+
 	/// en: 'Auto Picture-in-Picture'
 	String get autoPip => 'Auto Picture-in-Picture';
 
@@ -1052,6 +1067,9 @@ class Translations$settings$en {
 
 	/// en: 'Use Apple's native Dolby decoder for Dolby Digital Plus, including Atmos. DTS and TrueHD still play as multichannel PCM. Turn off if you have no sound.'
 	String get audioPassthroughDescriptionAppleTv => 'Use Apple\'s native Dolby decoder for Dolby Digital Plus, including Atmos. DTS and TrueHD still play as multichannel PCM. Turn off if you have no sound.';
+
+	/// en: 'Off while loudness normalization is on'
+	String get audioPassthroughOverriddenByNormalization => 'Off while loudness normalization is on';
 
 	/// en: 'Downmix to Stereo'
 	String get audioDownmix => 'Downmix to Stereo';
@@ -2144,6 +2162,9 @@ class Translations$videoControls$en {
 	/// en: 'Zoom ${percent}%'
 	String zoomPercent({required Object percent}) => 'Zoom ${percent}%';
 
+	/// en: 'Volume ${percent}%'
+	String volumePercent({required Object percent}) => 'Volume ${percent}%';
+
 	late final Translations$videoControls$pipErrors$en pipErrors = Translations$videoControls$pipErrors$en.internal(_root);
 
 	/// en: 'Chapters'
@@ -2271,6 +2292,9 @@ class Translations$messages$en {
 
 	/// en: 'Playback could not be started.'
 	String get playbackFailed => 'Playback could not be started.';
+
+	/// en: 'Playback could not be started: ${error}'
+	String playbackFailedDetail({required Object error}) => 'Playback could not be started: ${error}';
 
 	/// en: 'The audio output stopped responding. Check the TV or receiver's audio connection; if other apps have no sound either, restart the device.'
 	String get audioOutputFailed => 'The audio output stopped responding. Check the TV or receiver\'s audio connection; if other apps have no sound either, restart the device.';
@@ -2407,6 +2431,9 @@ class Translations$messages$en {
 	/// en: 'Could not apply the selected streams'
 	String get streamSelectionFailed => 'Could not apply the selected streams';
 
+	/// en: 'This track choice applies to the current playback only.'
+	String get trackSelectionNotRemembered => 'This track choice applies to the current playback only.';
+
 	/// en: 'No server is available for the active profile'
 	String get serverUnavailableForProfile => 'No server is available for the active profile';
 }
@@ -2466,6 +2493,12 @@ class Translations$subtitlingStyling$en {
 
 	/// en: 'Bottom'
 	String get positionBottom => 'Bottom';
+
+	/// en: 'Use margins'
+	String get useMargins => 'Use margins';
+
+	/// en: 'Allow text subtitles in the space outside the video. Styled subtitles may keep their original placement.'
+	String get useMarginsDescription => 'Allow text subtitles in the space outside the video. Styled subtitles may keep their original placement.';
 
 	/// en: 'Anchor to Screen'
 	String get anchorToScreen => 'Anchor to Screen';
@@ -3033,6 +3066,27 @@ class Translations$errors$en {
 
 	/// en: 'Couldn't update rating'
 	String get failedToRate => 'Couldn\'t update rating';
+
+	/// en: 'the connection timed out'
+	String get reasonTimedOut => 'the connection timed out';
+
+	/// en: 'the server could not be reached'
+	String get reasonUnreachable => 'the server could not be reached';
+
+	/// en: 'the server refused the request'
+	String get reasonRefused => 'the server refused the request';
+
+	/// en: 'the item is no longer on the server'
+	String get reasonNotFound => 'the item is no longer on the server';
+
+	/// en: 'the server reported an error'
+	String get reasonServerError => 'the server reported an error';
+
+	/// en: 'the request was cancelled'
+	String get reasonCancelled => 'the request was cancelled';
+
+	/// en: 'an unexpected error occurred'
+	String get reasonUnexpected => 'an unexpected error occurred';
 }
 
 // Path: libraries
@@ -3170,6 +3224,7 @@ class Translations$libraries$en {
 	late final Translations$libraries$groupings$en groupings = Translations$libraries$groupings$en.internal(_root);
 	late final Translations$libraries$filterCategories$en filterCategories = Translations$libraries$filterCategories$en.internal(_root);
 	late final Translations$libraries$sortLabels$en sortLabels = Translations$libraries$sortLabels$en.internal(_root);
+	late final Translations$libraries$advancedFilters$en advancedFilters = Translations$libraries$advancedFilters$en.internal(_root);
 }
 
 // Path: about
@@ -3727,8 +3782,14 @@ class Translations$liveTv$en {
 	/// en: 'Guide refresh requested'
 	String get guideReloadRequested => 'Guide refresh requested';
 
+	/// en: 'Couldn't refresh the guide'
+	String get guideReloadFailed => 'Couldn\'t refresh the guide';
+
 	/// en: 'Rule re-evaluation requested'
 	String get rulesProcessRequested => 'Rule re-evaluation requested';
+
+	/// en: 'Couldn't re-evaluate recording rules'
+	String get rulesProcessFailed => 'Couldn\'t re-evaluate recording rules';
 
 	/// en: 'Record show'
 	String get recordShow => 'Record show';
@@ -3749,6 +3810,12 @@ class Translations$liveTv$en {
 
 	/// en: 'Could not build the stream URL'
 	String get failedToBuildStreamUrl => 'Could not build the stream URL';
+
+	/// en: 'Couldn't start the channel: ${reason}'
+	String playbackStartFailed({required Object reason}) => 'Couldn\'t start the channel: ${reason}';
+
+	/// en: 'Couldn't switch channel: ${reason}'
+	String channelSwitchFailed({required Object reason}) => 'Couldn\'t switch channel: ${reason}';
 }
 
 // Path: collections
@@ -4282,8 +4349,11 @@ class Translations$downloads$en {
 	/// en: 'Server error: file may exceed the remote bitrate limit'
 	String get serverErrorBitrate => 'Server error: file may exceed the remote bitrate limit';
 
-	/// en: 'Downloads stopped because device storage is full. Free some space, then retry.'
-	String get storageFull => 'Downloads stopped because device storage is full. Free some space, then retry.';
+	/// en: 'Downloads stopped to protect available storage. Free some space or choose another download location, then retry.'
+	String get storageFull => 'Downloads stopped to protect available storage. Free some space or choose another download location, then retry.';
+
+	/// en: 'Downloads stopped because available storage could not be checked. Check the download location, then retry.'
+	String get storageUnavailable => 'Downloads stopped because available storage could not be checked. Check the download location, then retry.';
 
 	/// en: '${count} episodes queued for download'
 	String episodesQueued({required Object count}) => '${count} episodes queued for download';
@@ -4463,6 +4533,14 @@ class Translations$downloads$en {
 	String get syncRuleListCreated => 'Sync rule created';
 
 	late final Translations$downloads$backgroundWarning$en backgroundWarning = Translations$downloads$backgroundWarning$en.internal(_root);
+
+	/// en: 'Downloads options'
+	String get options => 'Downloads options';
+
+	late final Translations$downloads$groupings$en groupings = Translations$downloads$groupings$en.internal(_root);
+
+	/// en: 'Unknown library'
+	String get unknownLibrary => 'Unknown library';
 
 	/// en: 'Unknown Show'
 	String get unknownShow => 'Unknown Show';
@@ -4651,6 +4729,12 @@ class Translations$videoSettings$en {
 
 	/// en: 'Normalize Loudness'
 	String get audioNormalization => 'Normalize Loudness';
+
+	/// en: 'Decodes audio to PCM; passthrough is off while this is on'
+	String get audioNormalizationDisablesPassthrough => 'Decodes audio to PCM; passthrough is off while this is on';
+
+	/// en: 'Decodes audio to a stereo mix; passthrough is off while this is on'
+	String get audioNormalizationStereoMix => 'Decodes audio to a stereo mix; passthrough is off while this is on';
 
 	/// en: 'Downmix to Stereo'
 	String get audioDownmix => 'Downmix to Stereo';
@@ -5089,6 +5173,9 @@ class Translations$metadataEdit$en {
 
 	/// en: 'Label'
 	String get label => 'Label';
+
+	/// en: 'Quick Tag...'
+	String get quickTag => 'Quick Tag...';
 }
 
 // Path: matchScreen
@@ -5977,6 +6064,9 @@ class Translations$libraries$filterCategories$en {
 
 	/// en: 'Favorites'
 	String get favorites => 'Favorites';
+
+	/// en: 'File Path'
+	String get filePath => 'File Path';
 }
 
 // Path: libraries.sortLabels
@@ -6046,6 +6136,102 @@ class Translations$libraries$sortLabels$en {
 
 	/// en: 'Last Episode Date Added'
 	String get lastEpisodeDateAdded => 'Last Episode Date Added';
+
+	/// en: 'Date Downloaded'
+	String get dateDownloaded => 'Date Downloaded';
+
+	/// en: 'Size'
+	String get size => 'Size';
+
+	/// en: 'Library'
+	String get library => 'Library';
+}
+
+// Path: libraries.advancedFilters
+class Translations$libraries$advancedFilters$en {
+	Translations$libraries$advancedFilters$en.internal(this._root);
+
+	final Translations _root; // ignore: unused_field
+
+	// Translations
+
+	/// en: 'Include'
+	String get include => 'Include';
+
+	/// en: 'Exclude'
+	String get exclude => 'Exclude';
+
+	/// en: 'Any'
+	String get any => 'Any';
+
+	/// en: 'Yes'
+	String get yes => 'Yes';
+
+	/// en: 'No'
+	String get no => 'No';
+
+	/// en: 'Not ${value}'
+	String not({required Object value}) => 'Not ${value}';
+
+	/// en: '${count} selected'
+	String valueCount({required Object count}) => '${count} selected';
+
+	/// en: '${count} excluded'
+	String valueCountExcluded({required Object count}) => '${count} excluded';
+
+	/// en: 'Search values'
+	String get searchValues => 'Search values';
+
+	/// en: 'No values'
+	String get noValues => 'No values';
+
+	/// en: 'Contains'
+	String get matchContains => 'Contains';
+
+	/// en: 'Does not contain'
+	String get matchNotContains => 'Does not contain';
+
+	/// en: 'Is'
+	String get matchIs => 'Is';
+
+	/// en: 'Is not'
+	String get matchIsNot => 'Is not';
+
+	/// en: 'Begins with'
+	String get matchBeginsWith => 'Begins with';
+
+	/// en: 'Ends with'
+	String get matchEndsWith => 'Ends with';
+
+	/// en: 'Type to match'
+	String get textHint => 'Type to match';
+
+	/// en: 'From'
+	String get from => 'From';
+
+	/// en: 'To'
+	String get to => 'To';
+
+	/// en: '${from} to ${to}'
+	String range({required Object from, required Object to}) => '${from} to ${to}';
+
+	/// en: '${value} and up'
+	String atLeast({required Object value}) => '${value} and up';
+
+	/// en: 'Up to ${value}'
+	String atMost({required Object value}) => 'Up to ${value}';
+
+	/// en: 'Last ${count} days'
+	String dateLastDays({required Object count}) => 'Last ${count} days';
+
+	/// en: 'Past year'
+	String get dateLastYear => 'Past year';
+
+	/// en: 'Older than ${count} days'
+	String dateOlderThanDays({required Object count}) => 'Older than ${count} days';
+
+	/// en: 'Older than a year'
+	String get dateOlderThanYear => 'Older than a year';
 }
 
 // Path: explore.rows
@@ -6663,6 +6849,18 @@ class Translations$downloads$backgroundWarning$en {
 	String get linkUnavailable => 'Couldn\'t open dontkillmyapp.com on this device';
 }
 
+// Path: downloads.groupings
+class Translations$downloads$groupings$en {
+	Translations$downloads$groupings$en.internal(this._root);
+
+	final Translations _root; // ignore: unused_field
+
+	// Translations
+
+	/// en: 'Library'
+	String get library => 'Library';
+}
+
 // Path: companionRemote.session
 class Translations$companionRemote$session$en {
 	Translations$companionRemote$session$en.internal(this._root);
@@ -7221,6 +7419,7 @@ extension on Translations {
 			'settings.minutesUnit' => ({required Object minutes}) => '${minutes} minutes',
 			'settings.rememberTrackSelections' => 'Remember track selections per show/movie',
 			'settings.rememberTrackSelectionsDescription' => 'Remember audio and subtitle choices per title',
+			'settings.rememberTrackSelectionsBackendRule' => 'Plex saves each choice on the server per file; Jellyfin also turns on the account\'s Remember selections; Emby is not supported',
 			'settings.followServerTrackSelections' => 'Use server\'s per-episode track selections',
 			'settings.followServerTrackSelectionsDescription' => 'On episode change, apply the audio and subtitles selected on the server instead of carrying over the current choice',
 			'settings.resumeMusicOnLaunch' => 'Remember music session',
@@ -7281,6 +7480,8 @@ extension on Translations {
 			'settings.autoPlayAndSkip' => 'Auto-Play & Skip',
 			'settings.autoPlayNextEpisode' => 'Auto-Play Next Episode',
 			'settings.autoPlayNextEpisodeDescription' => 'Start the next episode automatically when one ends',
+			'settings.shuffleStartsFromBeginning' => 'Shuffle Starts at Beginning',
+			'settings.shuffleStartsFromBeginningDescription' => 'Start each episode at the beginning when shuffling instead of resuming',
 			'settings.playNextCountdown' => 'Play Next Countdown',
 			'settings.playNextCountdownImmediate' => 'Play immediately',
 			'settings.skipIntroMode' => 'Skip Intro',
@@ -7330,6 +7531,8 @@ extension on Translations {
 			'settings.manageLibrariesDescription' => 'Reorder and hide libraries',
 			'settings.companionRemoteServer' => 'Companion Remote Server',
 			'settings.companionRemoteServerDescription' => 'Allow mobile devices on your network to control this app',
+			'settings.companionRemoteServerStartFailed' => 'Couldn\'t start the companion server',
+			'settings.companionRemoteServerStopFailed' => 'Couldn\'t stop the companion server',
 			'settings.autoPip' => 'Auto Picture-in-Picture',
 			'settings.autoPipDescription' => 'Automatically enter picture-in-picture when you leave the app during playback',
 			'settings.matchContentFrameRate' => 'Match Content Frame Rate',
@@ -7346,6 +7549,7 @@ extension on Translations {
 			'settings.audioPassthrough' => 'Audio Passthrough',
 			'settings.audioPassthroughDescription' => 'Send Dolby/DTS audio to your receiver or TV without re-encoding, preserving surround sound. Turn off if you have no sound.',
 			'settings.audioPassthroughDescriptionAppleTv' => 'Use Apple\'s native Dolby decoder for Dolby Digital Plus, including Atmos. DTS and TrueHD still play as multichannel PCM. Turn off if you have no sound.',
+			'settings.audioPassthroughOverriddenByNormalization' => 'Off while loudness normalization is on',
 			'settings.audioDownmix' => 'Downmix to Stereo',
 			'settings.audioDownmixDescription' => 'Mix surround audio down to two channels for stereo speakers or headphones',
 			'settings.downmixCenterBoost' => 'Center Channel Boost',
@@ -7528,14 +7732,14 @@ extension on Translations {
 			'fileInfo.externalDelivery' => 'Can Be Served Separately',
 			'fileInfo.sidecarPath' => 'Sidecar Path',
 			'fileInfo.sourceStream' => 'Copied From',
+			_ => null,
+		} ?? switch (path) {
 			'fileInfo.temporary' => 'Temporary',
 			'fileInfo.timeBase' => 'Time Base',
 			'fileInfo.overallBitrate' => 'Overall Bitrate',
 			'fileInfo.path' => 'Path',
 			'fileInfo.fileName' => 'File Name',
 			'fileInfo.size' => 'Size',
-			_ => null,
-		} ?? switch (path) {
 			'fileInfo.totalSize' => 'Total Size',
 			'fileInfo.container' => 'Container',
 			'fileInfo.duration' => 'Duration',
@@ -7706,6 +7910,7 @@ extension on Translations {
 			'videoControls.pipFailed' => 'Picture-in-picture failed to start',
 			'videoControls.screenshotSaved' => 'Screenshot saved',
 			'videoControls.zoomPercent' => ({required Object percent}) => 'Zoom ${percent}%',
+			'videoControls.volumePercent' => ({required Object percent}) => 'Volume ${percent}%',
 			'videoControls.pipErrors.androidVersion' => 'Requires Android 8.0 or newer',
 			'videoControls.pipErrors.iosVersion' => 'Requires iOS 15.0 or newer',
 			'videoControls.pipErrors.permissionDisabled' => 'Picture-in-picture is disabled. Enable it in system settings.',
@@ -7752,6 +7957,7 @@ extension on Translations {
 			'messages.playbackDataInvalid' => 'The server returned invalid playback information.',
 			'messages.playbackCancelled' => 'Playback was canceled.',
 			'messages.playbackFailed' => 'Playback could not be started.',
+			'messages.playbackFailedDetail' => ({required Object error}) => 'Playback could not be started: ${error}',
 			'messages.audioOutputFailed' => 'The audio output stopped responding. Check the TV or receiver\'s audio connection; if other apps have no sound either, restart the device.',
 			'messages.mediaUnavailable' => 'This content is no longer available.',
 			'messages.errorLoadingFileInfo' => ({required Object error}) => 'Error loading file info: ${error}',
@@ -7797,6 +8003,7 @@ extension on Translations {
 			'messages.playbackDataNotPrepared' => 'Playback was started before its data was ready',
 			'messages.streamSelectionUnavailable' => 'Stream selection is not available for this source',
 			'messages.streamSelectionFailed' => 'Could not apply the selected streams',
+			'messages.trackSelectionNotRemembered' => 'This track choice applies to the current playback only.',
 			'messages.serverUnavailableForProfile' => 'No server is available for the active profile',
 			'subtitlingStyling.text' => 'Text',
 			'subtitlingStyling.border' => 'Border',
@@ -7814,6 +8021,8 @@ extension on Translations {
 			'subtitlingStyling.overrideStrip' => 'Remove styling',
 			'subtitlingStyling.positionTop' => 'Top',
 			'subtitlingStyling.positionBottom' => 'Bottom',
+			'subtitlingStyling.useMargins' => 'Use margins',
+			'subtitlingStyling.useMarginsDescription' => 'Allow text subtitles in the space outside the video. Styled subtitles may keep their original placement.',
 			'subtitlingStyling.anchorToScreen' => 'Anchor to Screen',
 			'subtitlingStyling.anchorToScreenDescription' => 'Show text subtitles in the black bars below widescreen video',
 			'subtitlingStyling.bold' => 'Bold',
@@ -8006,6 +8215,13 @@ extension on Translations {
 			'errors.failedToSwitchProfile' => ({required Object displayName}) => 'Failed to switch to ${displayName}',
 			'errors.failedToDeleteProfile' => ({required Object displayName}) => 'Failed to delete ${displayName}',
 			'errors.failedToRate' => 'Couldn\'t update rating',
+			'errors.reasonTimedOut' => 'the connection timed out',
+			'errors.reasonUnreachable' => 'the server could not be reached',
+			'errors.reasonRefused' => 'the server refused the request',
+			'errors.reasonNotFound' => 'the item is no longer on the server',
+			'errors.reasonServerError' => 'the server reported an error',
+			'errors.reasonCancelled' => 'the request was cancelled',
+			'errors.reasonUnexpected' => 'an unexpected error occurred',
 			'libraries.title' => 'Libraries',
 			'libraries.fallbackTitle' => 'Library',
 			'libraries.scanLibraryFiles' => 'Scan Library Files',
@@ -8030,6 +8246,8 @@ extension on Translations {
 			'libraries.clearAll' => 'Clear All',
 			'libraries.scanLibraryConfirm' => ({required Object title}) => 'Are you sure you want to scan "${title}"?',
 			'libraries.analyzeLibraryConfirm' => ({required Object title}) => 'Are you sure you want to analyze "${title}"?',
+			_ => null,
+		} ?? switch (path) {
 			'libraries.refreshMetadataConfirm' => ({required Object title}) => 'Are you sure you want to refresh metadata for "${title}"?',
 			'libraries.emptyTrashConfirm' => ({required Object title}) => 'Are you sure you want to empty trash for "${title}"?',
 			'libraries.manageLibraries' => 'Manage Libraries',
@@ -8048,8 +8266,6 @@ extension on Translations {
 			'libraries.noFoldersFound' => 'No folders found',
 			'libraries.folders' => 'folders',
 			'libraries.tabs.recommended' => 'Recommended',
-			_ => null,
-		} ?? switch (path) {
 			'libraries.tabs.browse' => 'Browse',
 			'libraries.tabs.collections' => 'Collections',
 			'libraries.tabs.playlists' => 'Playlists',
@@ -8070,6 +8286,7 @@ extension on Translations {
 			'libraries.filterCategories.unwatched' => 'Unwatched',
 			'libraries.filterCategories.unplayed' => 'Unplayed',
 			'libraries.filterCategories.favorites' => 'Favorites',
+			'libraries.filterCategories.filePath' => 'File Path',
 			'libraries.sortLabels.title' => 'Title',
 			'libraries.sortLabels.dateAdded' => 'Date Added',
 			'libraries.sortLabels.releaseDate' => 'Release Date',
@@ -8090,6 +8307,35 @@ extension on Translations {
 			'libraries.sortLabels.dateShared' => 'Date Shared',
 			'libraries.sortLabels.latestEpisodeAirDate' => 'Latest Episode Air Date',
 			'libraries.sortLabels.lastEpisodeDateAdded' => 'Last Episode Date Added',
+			'libraries.sortLabels.dateDownloaded' => 'Date Downloaded',
+			'libraries.sortLabels.size' => 'Size',
+			'libraries.sortLabels.library' => 'Library',
+			'libraries.advancedFilters.include' => 'Include',
+			'libraries.advancedFilters.exclude' => 'Exclude',
+			'libraries.advancedFilters.any' => 'Any',
+			'libraries.advancedFilters.yes' => 'Yes',
+			'libraries.advancedFilters.no' => 'No',
+			'libraries.advancedFilters.not' => ({required Object value}) => 'Not ${value}',
+			'libraries.advancedFilters.valueCount' => ({required Object count}) => '${count} selected',
+			'libraries.advancedFilters.valueCountExcluded' => ({required Object count}) => '${count} excluded',
+			'libraries.advancedFilters.searchValues' => 'Search values',
+			'libraries.advancedFilters.noValues' => 'No values',
+			'libraries.advancedFilters.matchContains' => 'Contains',
+			'libraries.advancedFilters.matchNotContains' => 'Does not contain',
+			'libraries.advancedFilters.matchIs' => 'Is',
+			'libraries.advancedFilters.matchIsNot' => 'Is not',
+			'libraries.advancedFilters.matchBeginsWith' => 'Begins with',
+			'libraries.advancedFilters.matchEndsWith' => 'Ends with',
+			'libraries.advancedFilters.textHint' => 'Type to match',
+			'libraries.advancedFilters.from' => 'From',
+			'libraries.advancedFilters.to' => 'To',
+			'libraries.advancedFilters.range' => ({required Object from, required Object to}) => '${from} to ${to}',
+			'libraries.advancedFilters.atLeast' => ({required Object value}) => '${value} and up',
+			'libraries.advancedFilters.atMost' => ({required Object value}) => 'Up to ${value}',
+			'libraries.advancedFilters.dateLastDays' => ({required Object count}) => 'Last ${count} days',
+			'libraries.advancedFilters.dateLastYear' => 'Past year',
+			'libraries.advancedFilters.dateOlderThanDays' => ({required Object count}) => 'Older than ${count} days',
+			'libraries.advancedFilters.dateOlderThanYear' => 'Older than a year',
 			'about.title' => 'About',
 			'about.openSourceLicenses' => 'Open Source Licenses',
 			'about.versionLabel' => ({required Object version}) => 'Version ${version}',
@@ -8360,7 +8606,9 @@ extension on Translations {
 			'liveTv.editRuleAction' => 'Edit',
 			'liveTv.recordingRuleUpdated' => 'Recording rule updated',
 			'liveTv.guideReloadRequested' => 'Guide refresh requested',
+			'liveTv.guideReloadFailed' => 'Couldn\'t refresh the guide',
 			'liveTv.rulesProcessRequested' => 'Rule re-evaluation requested',
+			'liveTv.rulesProcessFailed' => 'Couldn\'t re-evaluate recording rules',
 			'liveTv.recordShow' => 'Record show',
 			'liveTv.recordSettings.startEarly' => 'Start early (seconds)',
 			'liveTv.recordSettings.endLate' => 'End late (seconds)',
@@ -8375,6 +8623,8 @@ extension on Translations {
 			'liveTv.invalidPlaybackData' => ({required Object product}) => '${product} returned invalid Live TV playback data',
 			'liveTv.failedToStartChannel' => 'Could not start the live channel',
 			'liveTv.failedToBuildStreamUrl' => 'Could not build the stream URL',
+			'liveTv.playbackStartFailed' => ({required Object reason}) => 'Couldn\'t start the channel: ${reason}',
+			'liveTv.channelSwitchFailed' => ({required Object reason}) => 'Couldn\'t switch channel: ${reason}',
 			'collections.title' => 'Collections',
 			'collections.collection' => 'Collection',
 			'collections.empty' => 'Collection is empty',
@@ -8510,6 +8760,8 @@ extension on Translations {
 			'watchTogether.participantJoined' => ({required Object name}) => '${name} joined',
 			'watchTogether.participantLeft' => ({required Object name}) => '${name} left',
 			'watchTogether.participantPaused' => ({required Object name}) => '${name} paused',
+			_ => null,
+		} ?? switch (path) {
 			'watchTogether.participantResumed' => ({required Object name}) => '${name} resumed',
 			'watchTogether.participantSeeked' => ({required Object name}) => '${name} changed the playback position',
 			'watchTogether.participantChangedSpeed' => ({required Object name, required Object speed}) => '${name} set the speed to ${speed}',
@@ -8543,7 +8795,8 @@ extension on Translations {
 			'downloads.downloadQueued' => 'Download queued',
 			'downloads.downloadResumed' => 'Download resumed',
 			'downloads.serverErrorBitrate' => 'Server error: file may exceed the remote bitrate limit',
-			'downloads.storageFull' => 'Downloads stopped because device storage is full. Free some space, then retry.',
+			'downloads.storageFull' => 'Downloads stopped to protect available storage. Free some space or choose another download location, then retry.',
+			'downloads.storageUnavailable' => 'Downloads stopped because available storage could not be checked. Check the download location, then retry.',
 			'downloads.episodesQueued' => ({required Object count}) => '${count} episodes queued for download',
 			'downloads.downloadDeleted' => 'Download deleted',
 			'downloads.deleteConfirm' => ({required Object title}) => 'Delete "${title}" from this device?',
@@ -8562,8 +8815,6 @@ extension on Translations {
 			'downloads.downloadingTooltip' => 'Downloading...',
 			'downloads.downloadingFilesTooltip' => ({required Object files}) => 'Downloading ${files}',
 			'downloads.noDownloadsTree' => 'No downloads',
-			_ => null,
-		} ?? switch (path) {
 			'downloads.pauseAll' => 'Pause all',
 			'downloads.resumeAll' => 'Resume all',
 			'downloads.deleteAll' => 'Delete all',
@@ -8631,6 +8882,9 @@ extension on Translations {
 			'downloads.backgroundWarning.statusUnknown' => 'Not checked yet',
 			'downloads.backgroundWarning.settingsUnavailable' => 'Couldn\'t open system settings on this device',
 			'downloads.backgroundWarning.linkUnavailable' => 'Couldn\'t open dontkillmyapp.com on this device',
+			'downloads.options' => 'Downloads options',
+			'downloads.groupings.library' => 'Library',
+			'downloads.unknownLibrary' => 'Unknown library',
 			'downloads.unknownShow' => 'Unknown Show',
 			'downloads.unknownSeason' => 'Unknown Season',
 			'downloads.unknownAlbum' => 'Unknown Album',
@@ -8745,6 +8999,8 @@ extension on Translations {
 			'videoSettings.audioOutputSpatial' => 'Spatial Audio',
 			'videoSettings.audioOutputStereo' => 'Stereo',
 			'videoSettings.audioNormalization' => 'Normalize Loudness',
+			'videoSettings.audioNormalizationDisablesPassthrough' => 'Decodes audio to PCM; passthrough is off while this is on',
+			'videoSettings.audioNormalizationStereoMix' => 'Decodes audio to a stereo mix; passthrough is off while this is on',
 			'videoSettings.audioDownmix' => 'Downmix to Stereo',
 			'performanceOverlay.color' => 'Color',
 			'performanceOverlay.performance' => 'Performance',
@@ -8882,6 +9138,7 @@ extension on Translations {
 			'metadataEdit.country' => 'Country',
 			'metadataEdit.collection' => 'Collection',
 			'metadataEdit.label' => 'Label',
+			'metadataEdit.quickTag' => 'Quick Tag...',
 			'matchScreen.match' => 'Match...',
 			'matchScreen.fixMatch' => 'Fix Match...',
 			'matchScreen.unmatch' => 'Unmatch',
@@ -9017,6 +9274,8 @@ extension on Translations {
 			'addServer.signInWithPlexCard' => 'Sign in with Plex',
 			'addServer.signInWithPlexCardSubtitle' => 'Authorize this device. Shared servers are added.',
 			'addServer.signInWithPlexCardSubtitleScoped' => 'Authorize a Plex account. Home users become profiles.',
+			_ => null,
+		} ?? switch (path) {
 			'addServer.connectToMediaBrowserCard' => ({required Object product}) => 'Connect to ${product}',
 			'addServer.connectToMediaBrowserCardSubtitle' => 'Enter your server URL, username, and password.',
 			'addServer.connectToMediaBrowserCardSubtitleScoped' => ({required Object product, required Object name}) => 'Sign in to your ${product} server. Binds to ${name}.',

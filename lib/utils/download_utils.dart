@@ -24,6 +24,7 @@ import 'dialogs.dart';
 import 'download_version_utils.dart';
 import 'platform_detector.dart';
 import 'snackbar_helper.dart';
+import '../utils/error_message_utils.dart';
 
 @visibleForTesting
 String? validateEpisodeCountInput(String text, {required bool allowZero}) {
@@ -243,7 +244,7 @@ Future<void> queueDownloadWithFeedback(
   } catch (e) {
     appLogger.e('Failed to queue download', error: e);
     if (context.mounted) {
-      showErrorSnackBar(context, t.messages.errorLoading(error: e.toString()));
+      showErrorSnackBar(context, t.messages.errorLoading(error: localizedErrorReason(e)));
     }
   }
 }
@@ -288,7 +289,7 @@ Future<DownloadResult?> showListDownloadOptionsAndQueue(
   if (syncChoice == _SyncChoice.keepSynced) {
     final ruleKey = downloadProvider.syncRuleKeyFor(ServerId(serverId), rootMetadata.id);
     if (downloadProvider.hasSyncRule(ruleKey)) {
-      await downloadProvider.updateSyncRuleFilter(ruleKey, filterString);
+      await downloadProvider.updateSyncRuleOptions(ruleKey, downloadFilter: filterString);
       syncRuleUpdated = true;
     } else {
       await downloadProvider.createSyncRule(
@@ -350,7 +351,7 @@ Future<void> fetchAndQueueListDownload(
   } catch (e) {
     appLogger.e('Failed to queue $targetType download', error: e);
     if (context.mounted) {
-      showErrorSnackBar(context, t.messages.errorLoading(error: e.toString()));
+      showErrorSnackBar(context, t.messages.errorLoading(error: localizedErrorReason(e)));
     }
   }
 }
@@ -447,7 +448,7 @@ Future<bool> editSyncRuleCount(
     return false;
   }
 
-  await downloadProvider.updateSyncRuleCount(globalKey, count);
+  await downloadProvider.updateSyncRuleOptions(globalKey, episodeCount: count);
   return true;
 }
 
@@ -466,11 +467,10 @@ Future<bool> editSyncRuleFilter(
   );
   if (selected == null || selected == currentFilter || !context.mounted) return false;
 
-  await downloadProvider.updateSyncRuleFilter(globalKey, selected);
+  await downloadProvider.updateSyncRuleOptions(globalKey, downloadFilter: selected);
   return true;
 }
 
-/// Shows a confirmation dialog to remove a sync rule.
 Future<SyncRuleRemovalResult?> confirmAndRemoveSyncRule(
   BuildContext context, {
   required DownloadProvider downloadProvider,
@@ -513,7 +513,7 @@ Future<SyncRuleRemovalResult?> confirmAndRemoveSyncRule(
   } catch (error, stackTrace) {
     appLogger.e('Failed to remove sync rule', error: error, stackTrace: stackTrace);
     if (context.mounted) {
-      showErrorSnackBar(context, t.messages.errorLoading(error: error.toString()));
+      showErrorSnackBar(context, t.messages.errorLoading(error: localizedErrorReason(error)));
     }
     return null;
   }

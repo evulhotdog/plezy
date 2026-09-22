@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -59,7 +60,6 @@ class OptimizedMediaImage extends StatelessWidget {
   final double? width;
   final double? height;
   final BoxFit fit;
-  final FilterQuality filterQuality;
   final Widget Function(BuildContext, String)? placeholder;
   final Widget Function(BuildContext, String, dynamic)? errorWidget;
   final Duration fadeInDuration;
@@ -89,7 +89,6 @@ class OptimizedMediaImage extends StatelessWidget {
     this.width,
     this.height,
     this.fit = BoxFit.cover,
-    this.filterQuality = FilterQuality.medium,
     this.placeholder,
     this.errorWidget,
     this.fadeInDuration = const Duration(milliseconds: 300),
@@ -111,7 +110,6 @@ class OptimizedMediaImage extends StatelessWidget {
     double? width,
     double? height,
     BoxFit fit,
-    FilterQuality filterQuality,
     Widget Function(BuildContext, String)? placeholder,
     Widget Function(BuildContext, String, dynamic)? errorWidget,
     Duration fadeInDuration,
@@ -133,7 +131,6 @@ class OptimizedMediaImage extends StatelessWidget {
     double? width,
     double? height,
     BoxFit fit = BoxFit.cover,
-    FilterQuality filterQuality = FilterQuality.medium,
     Widget Function(BuildContext, String)? placeholder,
     Widget Function(BuildContext, String, dynamic)? errorWidget,
     Duration fadeInDuration = const Duration(milliseconds: 300),
@@ -148,7 +145,6 @@ class OptimizedMediaImage extends StatelessWidget {
          width: width,
          height: height,
          fit: fit,
-         filterQuality: filterQuality,
          placeholder: placeholder,
          errorWidget: errorWidget,
          fadeInDuration: fadeInDuration,
@@ -167,7 +163,6 @@ class OptimizedMediaImage extends StatelessWidget {
     double? width,
     double? height,
     BoxFit fit = BoxFit.cover,
-    FilterQuality filterQuality = FilterQuality.medium,
     Widget Function(BuildContext, String)? placeholder,
     Widget Function(BuildContext, String, dynamic)? errorWidget,
     Duration fadeInDuration = const Duration(milliseconds: 300),
@@ -184,7 +179,6 @@ class OptimizedMediaImage extends StatelessWidget {
          width: width,
          height: height,
          fit: fit,
-         filterQuality: filterQuality,
          placeholder: placeholder,
          errorWidget: errorWidget,
          fadeInDuration: fadeInDuration,
@@ -201,6 +195,10 @@ class OptimizedMediaImage extends StatelessWidget {
   /// meaning we can skip the LayoutBuilder.
   bool get _hasKnownDimensions =>
       width != null && width!.isFinite && width! > 0 && height != null && height!.isFinite && height! > 0;
+
+  /// Not a constructor parameter: the filter has to follow the fetch density,
+  /// not the call site.
+  FilterQuality _filterQuality(BuildContext context) => MediaImageHelper.artworkFilterQuality(context, imageType);
 
   @override
   Widget build(BuildContext context) {
@@ -248,9 +246,9 @@ class OptimizedMediaImage extends StatelessWidget {
   }
 
   Widget _buildLocalFileImage(BuildContext context, File file, double effectiveWidth, double effectiveHeight) {
-    final dpr = MediaImageHelper.effectiveDevicePixelRatio(context);
-    final scaledWidth = effectiveWidth * dpr;
-    final scaledHeight = effectiveHeight * dpr;
+    final pixelRatio = MediaImageHelper.artworkPixelRatio(context, imageType: imageType);
+    final scaledWidth = effectiveWidth * pixelRatio;
+    final scaledHeight = effectiveHeight * pixelRatio;
     final (memWidth, memHeight) = MediaImageHelper.getMemCacheDimensions(
       displayWidth: scaledWidth.isFinite && scaledWidth > 0 ? scaledWidth.round() : 0,
       displayHeight: scaledHeight.isFinite && scaledHeight > 0 ? scaledHeight.round() : 0,
@@ -272,7 +270,7 @@ class OptimizedMediaImage extends StatelessWidget {
         // the TV a11y services make Flutter rebuild every frame.
         excludeFromSemantics: true,
         fit: fit,
-        filterQuality: filterQuality,
+        filterQuality: _filterQuality(context),
         alignment: alignment,
         color: tint,
         colorBlendMode: tint == null ? null : BlendMode.srcATop,
@@ -300,14 +298,14 @@ class OptimizedMediaImage extends StatelessWidget {
   }
 
   Widget _buildCachedImage(BuildContext context, double effectiveWidth, double effectiveHeight) {
-    final devicePixelRatio = MediaImageHelper.effectiveDevicePixelRatio(context);
+    final pixelRatio = MediaImageHelper.artworkPixelRatio(context, imageType: imageType);
 
     final imageUrl = MediaImageHelper.getOptimizedImageUrl(
       client: client,
       thumbPath: imagePath,
       maxWidth: effectiveWidth,
       maxHeight: effectiveHeight,
-      devicePixelRatio: devicePixelRatio,
+      pixelRatio: pixelRatio,
       imageType: imageType,
     );
 
@@ -321,8 +319,8 @@ class OptimizedMediaImage extends StatelessWidget {
       return _buildFallback(context);
     }
 
-    final scaledWidth = effectiveWidth * devicePixelRatio;
-    final scaledHeight = effectiveHeight * devicePixelRatio;
+    final scaledWidth = effectiveWidth * pixelRatio;
+    final scaledHeight = effectiveHeight * pixelRatio;
     final (memWidth, memHeight) = MediaImageHelper.getMemCacheDimensions(
       displayWidth: scaledWidth.isFinite && scaledWidth > 0 ? scaledWidth.round() : 0,
       displayHeight: scaledHeight.isFinite && scaledHeight > 0 ? scaledHeight.round() : 0,
@@ -348,7 +346,7 @@ class OptimizedMediaImage extends StatelessWidget {
           // Decorative — see the Image.file branch.
           excludeFromSemantics: true,
           fit: fit,
-          filterQuality: filterQuality,
+          filterQuality: _filterQuality(context),
           alignment: alignment,
           color: tint,
           colorBlendMode: tint == null ? null : BlendMode.srcATop,
@@ -366,7 +364,7 @@ class OptimizedMediaImage extends StatelessWidget {
       width: width,
       height: height,
       fit: fit,
-      filterQuality: filterQuality,
+      filterQuality: _filterQuality(context),
       alignment: alignment,
       duration: fadeInDuration,
       placeholderBuilder: (context) => _buildPlaceholder(context, imageUrl),
@@ -464,7 +462,12 @@ class OptimizedMediaImage extends StatelessWidget {
 /// 4.17∶1 logo into 2.78∶1.
 ///
 /// [fallbackBuilder] renders the title in place of the logo when the path is
-/// missing, the URL can't be built, or the image fails to load.
+/// missing, the URL can't be built, or the image fails to load. The title
+/// gets [fallbackWidth] — see [fallbackWidthFor] — not the logo's [width]:
+/// that cap keeps a wide mark from filling the hero under `BoxFit.contain`,
+/// but a title confined to it wraps and ellipsizes long before the hero runs
+/// out of room (#1796). Both share [height], so a caller's hero height budget
+/// is the same whichever renders.
 class ClearLogoImage extends StatelessWidget {
   const ClearLogoImage({
     super.key,
@@ -472,6 +475,7 @@ class ClearLogoImage extends StatelessWidget {
     required this.logoPath,
     required this.width,
     required this.height,
+    required this.fallbackWidth,
     required this.fallbackBuilder,
     this.alignment = Alignment.centerLeft,
     this.fadeInDuration = const Duration(milliseconds: 300),
@@ -480,9 +484,25 @@ class ClearLogoImage extends StatelessWidget {
 
   final MediaServerClient? client;
   final String? logoPath;
+
+  /// Logo slot; the mark is contained within [width] × [height].
   final double width;
   final double height;
+
+  /// Title slot width, at least [width]; see [fallbackWidthFor].
+  final double fallbackWidth;
   final WidgetBuilder fallbackBuilder;
+
+  /// Width of the title slot for a hero whose logo slot is [logoWidth] wide
+  /// inside an [available]-wide content column: twice the logo, capped to
+  /// the column. Confined to the logo slot a title ellipsizes early (#1796);
+  /// given the whole column it runs one 1400px line across a desktop hero,
+  /// where a two-line block is what reads as a title. Twice the logo keeps
+  /// it a block; [FittingTitleText] shrinks whatever still does not fit.
+  static double fallbackWidthFor({required double logoWidth, required double available}) =>
+      math.min(available, 2 * logoWidth);
+
+  /// Positions the logo slot within the title slot and the mark within it.
   final Alignment alignment;
   final Duration fadeInDuration;
 
@@ -494,25 +514,30 @@ class ClearLogoImage extends StatelessWidget {
   Widget build(BuildContext context) {
     final path = logoPath;
     return SizedBox(
-      width: width,
+      width: fallbackWidth,
       height: height,
       child: path == null || path.isEmpty
           ? fallbackBuilder(context)
-          : OptimizedMediaImage(
-              client: client,
-              imagePath: path,
-              width: width,
-              height: height,
-              fit: BoxFit.contain,
+          : Align(
               alignment: alignment,
-              imageType: ImageType.heroLogo,
-              fadeInDuration: fadeInDuration,
-              logoToneTarget: logoToneTarget,
-              // Clear logos render on heroes where a mark's color is part of
-              // its identity: mixed-tone marks stay untouched.
-              logoToneRemapMixed: false,
-              placeholder: (context, _) => const SizedBox.shrink(),
-              errorWidget: (context, _, _) => fallbackBuilder(context),
+              child: OptimizedMediaImage(
+                client: client,
+                imagePath: path,
+                width: width,
+                height: height,
+                fit: BoxFit.contain,
+                alignment: alignment,
+                imageType: ImageType.heroLogo,
+                fadeInDuration: fadeInDuration,
+                logoToneTarget: logoToneTarget,
+                // Clear logos render on heroes where a mark's color is part of
+                // its identity: mixed-tone marks stay untouched.
+                logoToneRemapMixed: false,
+                placeholder: (context, _) => const SizedBox.shrink(),
+                // Replaces the image under Align's loose constraints, so it can
+                // take the whole title slot rather than the logo's.
+                errorWidget: (context, _, _) => SizedBox.expand(child: fallbackBuilder(context)),
+              ),
             ),
     );
   }

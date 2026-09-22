@@ -7,7 +7,6 @@ import '../../mpv/mpv.dart';
 import '../../providers/companion_remote_provider.dart';
 import '../../services/companion_remote/companion_remote_receiver.dart';
 import '../../services/fullscreen_state_manager.dart';
-import '../../services/settings_service.dart';
 import '../../services/video_volume_controller.dart';
 import '../../utils/app_logger.dart';
 import '../../utils/platform_detector.dart';
@@ -28,11 +27,11 @@ class CompanionRemoteBinding {
     required this._isMounted,
     required this._canControlPlayback,
     required this._volumeController,
-    required this._hasNextEpisode,
+    required this._hasNextItem,
     required this._onStop,
-    required this._onPlayNext,
-    required this._onPlayPrevious,
-    required this._seekRelative,
+    required this._onNavigateToNextItem,
+    required this._onNavigateToPreviousItem,
+    required this._skipByConfiguredStep,
     required this._onCycleSubtitles,
     required this._onCycleAudio,
     required this._onHome,
@@ -43,11 +42,11 @@ class CompanionRemoteBinding {
   final bool Function() _isMounted;
   final bool Function() _canControlPlayback;
   final VideoVolumeController? Function() _volumeController;
-  final bool Function() _hasNextEpisode;
+  final bool Function() _hasNextItem;
   final void Function() _onStop;
-  final void Function() _onPlayNext;
-  final Future<void> Function() _onPlayPrevious;
-  final Future<void> Function(Duration offset) _seekRelative;
+  final Future<void> Function() _onNavigateToNextItem;
+  final Future<void> Function() _onNavigateToPreviousItem;
+  final void Function({required bool forward}) _skipByConfiguredStep;
   final void Function() _onCycleSubtitles;
   final void Function() _onCycleAudio;
   final void Function() _onHome;
@@ -69,13 +68,13 @@ class CompanionRemoteBinding {
       if (_isMounted()) _onStop();
     };
     receiver.onNextTrack = () {
-      if (_isMounted() && _hasNextEpisode()) _onPlayNext();
+      if (_isMounted() && _hasNextItem()) unawaited(_onNavigateToNextItem());
     };
     receiver.onPreviousTrack = () {
-      if (_isMounted()) unawaited(_onPlayPrevious());
+      if (_isMounted()) unawaited(_onNavigateToPreviousItem());
     };
-    receiver.onSeekForward = () => _dispatchSeek(1);
-    receiver.onSeekBackward = () => _dispatchSeek(-1);
+    receiver.onSeekForward = () => _dispatchSeek(forward: true);
+    receiver.onSeekBackward = () => _dispatchSeek(forward: false);
     receiver.onVolumeUp = () => _dispatchVolume(10);
     receiver.onVolumeDown = () => _dispatchVolume(-10);
     receiver.onVolumeMute = _dispatchMute;
@@ -103,18 +102,13 @@ class CompanionRemoteBinding {
     }
   }
 
-  void _dispatchSeek(int direction) {
+  void _dispatchSeek({required bool forward}) {
     final currentPlayer = _player();
     if (!_isMounted() || currentPlayer == null || !_canControlPlayback()) return;
-    final settings = SettingsService.instance;
-    final seconds = settings.read(SettingsService.seekTimeSmall) * direction;
-    // _seekRelative captures the current player synchronously before its first
-    // await, binding this command to the exact screen/player owner at receipt.
-    unawaited(
-      _seekRelative(Duration(seconds: seconds)).catchError((Object error, StackTrace stackTrace) {
-        appLogger.w('Companion seek failed', error: error, stackTrace: stackTrace);
-      }),
-    );
+    // The viewer's configured step, like every other skip source, and the
+    // screen coalesces a burst of these into one absolute seek so a remote
+    // held on skip cannot dispatch a native seek per repeat.
+    _skipByConfiguredStep(forward: forward);
   }
 
   void _dispatchVolume(double delta) {

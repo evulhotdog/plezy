@@ -366,7 +366,7 @@ class AppDatabase extends _$AppDatabase {
   static const FormatException _invalidRecoveryImage = FormatException('Invalid tvOS database recovery image');
 
   @override
-  int get schemaVersion => 22;
+  int get schemaVersion => 23;
 
   @override
   MigrationStrategy get migration {
@@ -740,6 +740,17 @@ class AppDatabase extends _$AppDatabase {
           appLogger.i('Adding MusicSessions table (v22 migration)');
           await _ignoreAlreadyExists('MusicSessions table', () => m.createTable(musicSessions));
         }
+        if (from < 23) {
+          appLogger.i('Adding library identity columns to DownloadedMedia (v23 migration)');
+          await _ignoreAlreadyExists(
+            'DownloadedMedia.libraryId column',
+            () => m.addColumn(downloadedMedia, downloadedMedia.libraryId),
+          );
+          await _ignoreAlreadyExists(
+            'DownloadedMedia.libraryTitle column',
+            () => m.addColumn(downloadedMedia, downloadedMedia.libraryTitle),
+          );
+        }
       },
     );
   }
@@ -761,7 +772,6 @@ class AppDatabase extends _$AppDatabase {
     return value == null ? column.isNull() : column.equals(value);
   }
 
-  /// Get all pending offline watch actions for sync
   Future<List<OfflineWatchProgressItem>> getPendingWatchActions({String? profileId}) {
     final query = select(offlineWatchProgress)..orderBy([(t) => OrderingTerm.asc(t.createdAt)]);
     if (profileId != null) {
@@ -1056,23 +1066,16 @@ class AppDatabase extends _$AppDatabase {
   /// Update the retry state only if the action is still the snapshotted revision.
   Future<bool> updateSyncAttemptIfUnchanged(int id, int revision, String? errorMessage) {
     return _runPendingMutation(() async {
-      final existing = await (select(
-        offlineWatchProgress,
-      )..where((t) => t.id.equals(id) & t.updatedAt.equals(revision))).getSingleOrNull();
-      if (existing == null) return false;
-
-      final updated = await (update(offlineWatchProgress)..where((t) => t.id.equals(id) & t.updatedAt.equals(revision)))
-          .write(
-            OfflineWatchProgressCompanion(
-              syncAttempts: Value(existing.syncAttempts + 1),
-              lastError: Value(errorMessage),
-            ),
-          );
+      final updated = await customUpdate(
+        'UPDATE offline_watch_progress SET sync_attempts = sync_attempts + 1, last_error = ? '
+        'WHERE id = ? AND updated_at = ?',
+        variables: [Variable<String>(errorMessage), Variable<int>(id), Variable<int>(revision)],
+        updates: {offlineWatchProgress},
+      );
       return updated != 0;
     });
   }
 
-  /// Get count of pending sync items
   Future<int> getPendingSyncCount({String? profileId, int? maxSyncAttempts}) async {
     final query = selectOnly(offlineWatchProgress)..addColumns([offlineWatchProgress.id.count()]);
     if (profileId != null) {
@@ -1294,14 +1297,41 @@ class AppDatabase extends _$AppDatabase {
     await (update(syncRules)..where((t) => t.globalKey.equals(globalKey))).write(values);
   }
 
-  Future<void> updateSyncRuleCount(String globalKey, int episodeCount) =>
-      _writeSyncRule(globalKey, SyncRulesCompanion(episodeCount: Value(episodeCount)));
-
-  Future<void> updateSyncRuleFilter(String globalKey, String downloadFilter) =>
-      _writeSyncRule(globalKey, SyncRulesCompanion(downloadFilter: Value(downloadFilter)));
-
   Future<void> updateSyncRuleEnabled(String globalKey, bool enabled) =>
       _writeSyncRule(globalKey, SyncRulesCompanion(enabled: Value(enabled)));
+
+  /// Patch one existing rule without replacing concurrent execution metadata.
+  /// The id check rejects delete/recreate races for the same target.
+  Future<SyncRuleItem> updateSyncRuleOptions(
+    SyncRuleItem expected, {
+    int? episodeCount,
+    String? downloadFilter,
+    bool? enabled,
+    bool? includeSpecials,
+    int? mediaIndex,
+    required void Function() checkCurrent,
+  }) => transaction(() async {
+    checkCurrent();
+    final current = await getSyncRule(expected.globalKey);
+    checkCurrent();
+    if (current == null || current.id != expected.id || current.profileId != expected.profileId) {
+      throw StateError('Sync rule no longer exists');
+    }
+    await (update(syncRules)..where((t) => t.id.equals(expected.id) & t.profileId.equals(expected.profileId))).write(
+      SyncRulesCompanion(
+        episodeCount: episodeCount == null ? const Value.absent() : Value(episodeCount),
+        downloadFilter: downloadFilter == null ? const Value.absent() : Value(downloadFilter),
+        enabled: enabled == null ? const Value.absent() : Value(enabled),
+        includeSpecials: includeSpecials == null ? const Value.absent() : Value(includeSpecials),
+        mediaIndex: mediaIndex == null ? const Value.absent() : Value(mediaIndex),
+      ),
+    );
+    checkCurrent();
+    final updated = await getSyncRule(expected.globalKey);
+    checkCurrent();
+    if (updated == null) throw StateError('Sync rule no longer exists');
+    return updated;
+  });
 
   Future<void> completeSyncRuleExecution(String globalKey) {
     return (update(syncRules)..where((t) => t.globalKey.equals(globalKey))).write(

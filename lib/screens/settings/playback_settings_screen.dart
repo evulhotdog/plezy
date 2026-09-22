@@ -8,7 +8,6 @@ import '../../models/audio_quality_preset.dart';
 import '../../models/transcode_quality_preset.dart';
 import '../../models/player_setting_scope.dart';
 import '../../utils/quality_preset_labels.dart';
-import '../../services/keyboard_shortcuts_service.dart';
 import '../../services/settings_service.dart';
 import '../../utils/platform_detector.dart';
 import '../../widgets/setting_tile.dart';
@@ -20,25 +19,8 @@ import 'mpv_config_screen.dart';
 import 'settings_utils.dart';
 import 'subtitle_styling_screen.dart';
 
-class PlaybackSettingsScreen extends StatefulWidget {
+class PlaybackSettingsScreen extends StatelessWidget {
   const PlaybackSettingsScreen({super.key});
-
-  @override
-  State<PlaybackSettingsScreen> createState() => _PlaybackSettingsScreenState();
-}
-
-class _PlaybackSettingsScreenState extends State<PlaybackSettingsScreen> {
-  KeyboardShortcutsService? _keyboardService;
-
-  @override
-  void initState() {
-    super.initState();
-    if (KeyboardShortcutsService.isPlatformSupported()) {
-      KeyboardShortcutsService.getInstance().then((s) {
-        if (mounted) _keyboardService = s;
-      });
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -161,9 +143,6 @@ class _PlaybackSettingsScreenState extends State<PlaybackSettingsScreen> {
         subtitleBuilder: (v) => t.settings.secondsUnit(seconds: v.toString()),
         labelText: t.settings.secondsLabel,
         suffixText: t.settings.secondsShort,
-        min: 1,
-        max: 120,
-        onAfterWrite: (_) => _keyboardService?.refreshFromStorage(),
       ),
       SettingNumberTile(
         pref: SettingsService.seekTimeLarge,
@@ -172,9 +151,6 @@ class _PlaybackSettingsScreenState extends State<PlaybackSettingsScreen> {
         subtitleBuilder: (v) => t.settings.secondsUnit(seconds: v.toString()),
         labelText: t.settings.secondsLabel,
         suffixText: t.settings.secondsShort,
-        min: 1,
-        max: 120,
-        onAfterWrite: (_) => _keyboardService?.refreshFromStorage(),
       ),
       SettingNumberTile(
         pref: SettingsService.rewindOnResume,
@@ -183,8 +159,6 @@ class _PlaybackSettingsScreenState extends State<PlaybackSettingsScreen> {
         subtitleBuilder: (v) => t.settings.secondsUnit(seconds: v.toString()),
         labelText: t.settings.secondsLabel,
         suffixText: t.settings.secondsShort,
-        min: 0,
-        max: 10,
       ),
       SettingNumberTile(
         pref: SettingsService.sleepTimerDuration,
@@ -193,8 +167,6 @@ class _PlaybackSettingsScreenState extends State<PlaybackSettingsScreen> {
         subtitleBuilder: (v) => t.settings.minutesUnit(minutes: v.toString()),
         labelText: t.settings.minutesLabel,
         suffixText: t.settings.minutesShort,
-        min: 5,
-        max: 240,
       ),
     ],
   );
@@ -251,7 +223,7 @@ class _PlaybackSettingsScreenState extends State<PlaybackSettingsScreen> {
         pref: SettingsService.rememberTrackSelections,
         icon: Symbols.bookmark_rounded,
         title: t.settings.rememberTrackSelections,
-        subtitle: t.settings.rememberTrackSelectionsDescription,
+        subtitle: '${t.settings.rememberTrackSelectionsDescription} · ${t.settings.rememberTrackSelectionsBackendRule}',
       ),
       SettingSwitchTile(
         pref: SettingsService.followServerTrackSelections,
@@ -314,6 +286,12 @@ class _PlaybackSettingsScreenState extends State<PlaybackSettingsScreen> {
         title: t.settings.autoPlayNextEpisode,
         subtitle: t.settings.autoPlayNextEpisodeDescription,
       ),
+      SettingSwitchTile(
+        pref: SettingsService.shuffleStartsFromBeginning,
+        icon: Symbols.shuffle_rounded,
+        title: t.settings.shuffleStartsFromBeginning,
+        subtitle: t.settings.shuffleStartsFromBeginningDescription,
+      ),
       SettingNumberTile(
         pref: SettingsService.playNextCountdown,
         icon: Symbols.timer_rounded,
@@ -322,8 +300,6 @@ class _PlaybackSettingsScreenState extends State<PlaybackSettingsScreen> {
             v == 0 ? t.settings.playNextCountdownImmediate : t.settings.secondsUnit(seconds: v.toString()),
         labelText: t.settings.secondsLabel,
         suffixText: t.settings.secondsShort,
-        min: 0,
-        max: 30,
       ),
       SettingSelectionTile<SkipMarkerMode>(
         pref: SettingsService.skipIntroMode,
@@ -352,8 +328,6 @@ class _PlaybackSettingsScreenState extends State<PlaybackSettingsScreen> {
         subtitleBuilder: (v) => t.settings.autoSkipDelayDescription(seconds: v.toString()),
         labelText: t.settings.secondsLabel,
         suffixText: t.settings.secondsShort,
-        min: 1,
-        max: 30,
       ),
       SettingRegexTile(
         pref: SettingsService.introPattern,
@@ -502,13 +476,25 @@ class _PlaybackSettingsScreenState extends State<PlaybackSettingsScreen> {
     subtitle: t.settings.deinterlaceDescription,
   );
 
-  Widget _audioPassthroughTile() => SettingSwitchTile(
-    pref: SettingsService.audioPassthrough,
-    icon: Symbols.surround_sound_rounded,
-    title: t.settings.audioPassthrough,
-    subtitle: PlatformDetector.isAppleTV()
-        ? t.settings.audioPassthroughDescriptionAppleTv
-        : t.settings.audioPassthroughDescription,
+  // Normalization wins over passthrough in the player (loudnorm cannot filter
+  // a bitstream), so the switch reports that override instead of promising
+  // bitstreaming that will not happen.
+  Widget _audioPassthroughTile() => SettingsBuilder(
+    prefs: const [SettingsService.audioNormalization],
+    builder: (context) {
+      final normalizationOn = SettingsService.instance.read(SettingsService.audioNormalization);
+      return SettingSwitchTile(
+        pref: SettingsService.audioPassthrough,
+        icon: Symbols.surround_sound_rounded,
+        title: t.settings.audioPassthrough,
+        subtitle: normalizationOn
+            ? t.settings.audioPassthroughOverriddenByNormalization
+            : PlatformDetector.isAppleTV()
+            ? t.settings.audioPassthroughDescriptionAppleTv
+            : t.settings.audioPassthroughDescription,
+        enabled: !normalizationOn,
+      );
+    },
   );
 
   Widget _audioDownmixTile() => SettingSwitchTile(
@@ -525,8 +511,6 @@ class _PlaybackSettingsScreenState extends State<PlaybackSettingsScreen> {
     subtitleBuilder: (v) => t.settings.downmixCenterBoostValue(db: v.toString()),
     labelText: t.settings.downmixCenterBoostLabel,
     suffixText: t.settings.downmixCenterBoostShort,
-    min: 0,
-    max: 12,
   );
 
   Widget _downmixNormalizeTile() => SettingSwitchTile(
@@ -543,8 +527,6 @@ class _PlaybackSettingsScreenState extends State<PlaybackSettingsScreen> {
     subtitleBuilder: (v) => t.settings.maxVolumePercent(percent: v.toString()),
     labelText: t.settings.maxVolumeDescription,
     suffixText: '%',
-    min: 100,
-    max: 300,
   );
 
   // Visibility for this and the tiles around it is decided by the hoisted
@@ -556,8 +538,6 @@ class _PlaybackSettingsScreenState extends State<PlaybackSettingsScreen> {
     subtitleBuilder: (v) => t.settings.secondsUnit(seconds: v.toString()),
     labelText: t.settings.secondsLabel,
     suffixText: t.settings.secondsShort,
-    min: 0,
-    max: 10,
   );
 
   Widget _tunneledPlaybackTile() => SettingSwitchTile(

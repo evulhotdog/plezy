@@ -17,12 +17,12 @@ class MpvPlayerCore: MpvPlayerCoreBase {
 
   func initialize(in window: NSWindow) -> Bool {
     guard !isInitialized else {
-      print("[MpvPlayerCore] Already initialized")
+      MpvLog.debug("[MpvPlayerCore] Already initialized")
       return true
     }
 
     guard let contentView = window.contentView else {
-      print("[MpvPlayerCore] No content view")
+      MpvLog.debug("[MpvPlayerCore] No content view")
       return false
     }
 
@@ -42,17 +42,17 @@ class MpvPlayerCore: MpvPlayerCoreBase {
 
     contentView.wantsLayer = true
     guard let contentLayer = contentView.layer else {
-      print("[MpvPlayerCore] No content layer")
+      MpvLog.debug("[MpvPlayerCore] No content layer")
       metalLayer = nil
       return false
     }
     attachMetalLayer(to: contentLayer, frame: contentView.bounds)
-    updateEDRMode(sigPeak: lastSigPeak)
+    publishDisplayHeadroom()
 
-    print("[MpvPlayerCore] Metal layer added, frame: \(layer.frame)")
+    MpvLog.debug("[MpvPlayerCore] Metal layer added, frame: \(layer.frame)")
 
     guard setupMpv() else {
-      print("[MpvPlayerCore] Failed to setup MPV")
+      MpvLog.debug("[MpvPlayerCore] Failed to setup MPV")
       layer.removeFromSuperlayer()
       metalLayer = nil
       return false
@@ -77,6 +77,18 @@ class MpvPlayerCore: MpvPlayerCoreBase {
       name: NSWindow.didChangeOcclusionStateNotification,
       object: window
     )
+    center.addObserver(
+      self,
+      selector: #selector(windowDidChangeScreen),
+      name: NSWindow.didChangeScreenNotification,
+      object: window
+    )
+    center.addObserver(
+      self,
+      selector: #selector(screenParametersDidChange),
+      name: NSApplication.didChangeScreenParametersNotification,
+      object: nil
+    )
 
     // Display/system sleep does not reliably change occlusionState, so observe
     // NSWorkspace screen sleep/wake directly to gate presentation (prevents a
@@ -97,7 +109,7 @@ class MpvPlayerCore: MpvPlayerCoreBase {
     )
 
     isInitialized = true
-    print("[MpvPlayerCore] Initialized successfully with MPV")
+    MpvLog.debug("[MpvPlayerCore] Initialized successfully with MPV")
     return true
   }
 
@@ -120,7 +132,7 @@ class MpvPlayerCore: MpvPlayerCoreBase {
       attachMetalLayer(to: contentLayer, frame: contentView.bounds)
     }
 
-    print("[MpvPlayerCore] Metal layer reattached to window")
+    MpvLog.debug("[MpvPlayerCore] Metal layer reattached to window")
   }
 
   func forceDraw() {
@@ -141,7 +153,7 @@ class MpvPlayerCore: MpvPlayerCoreBase {
         redrawIfPausedAndVisible()
       }
       beginPlaybackActivity()
-      print("[MpvPlayerCore] setVisible(true) skipped - already visible")
+      MpvLog.debug("[MpvPlayerCore] setVisible(true) skipped - already visible")
       return
     }
 
@@ -166,7 +178,7 @@ class MpvPlayerCore: MpvPlayerCoreBase {
     if visible {
       redrawIfPausedAndVisible()
     }
-    print("[MpvPlayerCore] setVisible(\(visible), restoreOnWindowVisible: \(restoreOnWindowVisible))")
+    MpvLog.debug("[MpvPlayerCore] setVisible(\(visible), restoreOnWindowVisible: \(restoreOnWindowVisible))")
   }
 
   func setPaused(_ paused: Bool) {
@@ -194,26 +206,32 @@ class MpvPlayerCore: MpvPlayerCoreBase {
       metalLayer.frame = targetFrame
       updateDrawableSize(for: metalLayer)
     }
-    updateEDRMode(sigPeak: lastSigPeak)
+    publishDisplayHeadroom()
   }
 
-  override func updateEDRMode(sigPeak: Double) {
+  /// KVC key the moltenvk gpu-context reads per frame for its display report
+  /// (`preferred_csp`, mpv-build patch 0029). A CALayer has no screen of its
+  /// own, so the screen showing the window is resolved here and its EDR
+  /// headroom published on the layer: above 1 the context reports a BT.2020
+  /// PQ display and mpv's `target-colorspace-hint=auto` engages; at 1 the
+  /// report stays unknown and mpv tone-maps to SDR on the untagged
+  /// pass-through swapchain, as before. MoltenVK then owns the layer's
+  /// colorspace and `wantsExtendedDynamicRangeContent` from the swapchain it
+  /// negotiates; nothing here writes them.
+  private static let edrHeadroomKey = "mpvEDRHeadroom"
+
+  private func publishDisplayHeadroom() {
     guard let metalLayer else { return }
-
-    let hdrEnabled = self.hdrEnabled
-    var potentialHeadroom: CGFloat = 1.0
-    if let screen = window?.screen ?? NSScreen.main {
-      potentialHeadroom = screen.maximumPotentialExtendedDynamicRangeColorComponentValue
+    let screen = window?.screen ?? NSScreen.main
+    let headroom = Double(screen?.maximumPotentialExtendedDynamicRangeColorComponentValue ?? 1.0)
+    let previous = (metalLayer.value(forKey: Self.edrHeadroomKey) as? NSNumber)?.doubleValue
+    guard previous != headroom else { return }
+    metalLayer.setValue(NSNumber(value: headroom), forKey: Self.edrHeadroomKey)
+    MpvLog.debug("[MpvPlayerCore] Display EDR headroom: \(headroom)")
+    // mpv re-reads the key on its next draw; a paused video has none coming.
+    if previous != nil {
+      redrawIfPausedAndVisible()
     }
-
-    let shouldEnableEDR = hdrEnabled && sigPeak > 1.0 && potentialHeadroom > 1.0
-    withoutLayerAnimations {
-      metalLayer.wantsExtendedDynamicRangeContent = shouldEnableEDR
-    }
-
-    print(
-      "[MpvPlayerCore] EDR mode: \(shouldEnableEDR) (hdrEnabled: \(hdrEnabled), sigPeak: \(sigPeak), potentialHeadroom: \(potentialHeadroom))"
-    )
   }
 
   func dispose() {
@@ -226,7 +244,7 @@ class MpvPlayerCore: MpvPlayerCoreBase {
     metalLayer?.removeFromSuperlayer()
     metalLayer = nil
     isInitialized = false
-    print("[MpvPlayerCore] Disposed")
+    MpvLog.debug("[MpvPlayerCore] Disposed")
   }
 
   deinit {
@@ -243,18 +261,26 @@ class MpvPlayerCore: MpvPlayerCoreBase {
     updateFrame()
   }
 
+  @objc private func windowDidChangeScreen(_ notification: Notification) {
+    publishDisplayHeadroom()
+  }
+
+  @objc private func screenParametersDidChange(_ notification: Notification) {
+    publishDisplayHeadroom()
+  }
+
   @objc private func windowOcclusionDidChange(_ notification: Notification) {
     guard metalLayer != nil, hasActiveMpv, !isPipActive else { return }
 
     let windowVisible = window?.occlusionState.contains(.visible) ?? true
     if !windowVisible && !layerHiddenForOcclusion {
-      print("[MpvPlayerCore] Window occluded - hiding Metal layer")
+      MpvLog.debug("[MpvPlayerCore] Window occluded - hiding Metal layer")
       setMetalLayerHidden(true)
       layerHiddenForOcclusion = true
       setBackgrounded(true)
       endPlaybackActivity()
     } else if windowVisible && layerHiddenForOcclusion {
-      print("[MpvPlayerCore] Window visible - showing Metal layer")
+      MpvLog.debug("[MpvPlayerCore] Window visible - showing Metal layer")
       layerHiddenForOcclusion = false
       if !layerHiddenForScreenSleep {
         if shouldRestoreOnWindowVisible {
@@ -273,7 +299,7 @@ class MpvPlayerCore: MpvPlayerCoreBase {
 
   @objc private func screensDidSleep(_ notification: Notification) {
     guard metalLayer != nil, hasActiveMpv, !layerHiddenForScreenSleep else { return }
-    print("[MpvPlayerCore] Screens did sleep - hiding Metal layer")
+    MpvLog.debug("[MpvPlayerCore] Screens did sleep - hiding Metal layer")
     layerHiddenForScreenSleep = true
     // Hide even during PiP: nothing is visible while the displays are dark, and
     // the hidden layer is what gates libmpv presentation (MPVKit >= 1.0.10).
@@ -284,7 +310,7 @@ class MpvPlayerCore: MpvPlayerCoreBase {
 
   @objc private func screensDidWake(_ notification: Notification) {
     guard metalLayer != nil, hasActiveMpv, layerHiddenForScreenSleep else { return }
-    print("[MpvPlayerCore] Screens did wake - restoring Metal layer")
+    MpvLog.debug("[MpvPlayerCore] Screens did wake - restoring Metal layer")
     layerHiddenForScreenSleep = false
 
     if isPipActive {
@@ -325,14 +351,14 @@ class MpvPlayerCore: MpvPlayerCoreBase {
       options: [.userInitiated, .latencyCritical],
       reason: "Video playback"
     )
-    print("[MpvPlayerCore] Began playback activity assertion")
+    MpvLog.debug("[MpvPlayerCore] Began playback activity assertion")
   }
 
   private func endPlaybackActivity() {
     guard let playbackActivity else { return }
     ProcessInfo.processInfo.endActivity(playbackActivity)
     self.playbackActivity = nil
-    print("[MpvPlayerCore] Ended playback activity assertion")
+    MpvLog.debug("[MpvPlayerCore] Ended playback activity assertion")
   }
 
   private func restoreMetalLayerAfterOcclusion() {

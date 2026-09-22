@@ -107,6 +107,7 @@ extension _VideoPlayerLiveTvMethods on VideoPlayerScreenState {
           currentGeneration: () => _live.timelineGeneration,
           isMounted: () => mounted,
           commit: (update) {
+            final hadSeekWindow = _live.captureBuffer != null;
             _setPlayerState(() {
               final playbackStream = update.playbackStream;
               if (playbackStream != null &&
@@ -122,6 +123,12 @@ extension _VideoPlayerLiveTvMethods on VideoPlayerScreenState {
                     window.seekableEndEpoch - VideoPlayerScreenState._liveEdgeThresholdSeconds);
               }
             });
+            // Time-shift arrived with this heartbeat (Plex publishes the
+            // capture buffer a beat after the tune): the session can now
+            // advertise ±skip through it.
+            if (!hadSeekWindow && _live.captureBuffer != null) {
+              unawaited(_mediaControls.syncAvailability());
+            }
           },
         ),
       );
@@ -130,18 +137,10 @@ extension _VideoPlayerLiveTvMethods on VideoPlayerScreenState {
     }
   }
 
-  /// Fire-and-forget a stopped heartbeat for a session that started but was
-  /// never adopted (unmount or superseded mid-start) so the backend tears
-  /// down its tuner/transcode resources instead of waiting for a timeout.
-  void _abandonLiveSession(LiveTvPlaybackSession session) {
-    unawaited(() async {
-      try {
-        await session.reportTimeline(state: 'stopped', positionMs: 0, durationMs: session.program.durationMs ?? 0);
-      } catch (e) {
-        appLogger.d('Failed to stop abandoned live session', error: e);
-      }
-    }());
-  }
+  /// Release a session that started but was never adopted (unmount or
+  /// superseded mid-start) so the backend frees its tuner/transcode instead of
+  /// holding it until an idle timeout, or forever (#2394).
+  void _abandonLiveSession(LiveTvPlaybackSession session) => unawaited(session.discard());
 
   /// Resolve the owning live-TV server for [channel] and start a playback
   /// session on it — the shared resolution path for initial launch and
@@ -159,6 +158,21 @@ extension _VideoPlayerLiveTvMethods on VideoPlayerScreenState {
       return null;
     }
     return client.liveTv.startPlayback(channel.key, dvrKey: serverInfo.dvrKey, quality: _selectedQualityPreset);
+  }
+
+  /// The item that stands in for [channel] once a zap adopts its session.
+  ///
+  /// Resolves the channel's server the same way [_startLiveSession] does, so a
+  /// cross-server channel list cannot leave every `_currentMetadata` consumer
+  /// describing the channel that was tuned first.
+  MediaItem _liveChannelItem(LiveTvChannel channel) {
+    final multiServer = context.read<MultiServerProvider>();
+    final serverInfo = liveTvServerInfoForChannel(multiServer, channel);
+    // An unscoped channel names no server of its own; the live TV server the
+    // tune would pick is the one that can serve its logo.
+    final serverId = serverInfo?.serverId ?? channel.serverId;
+    final client = serverId == null ? null : multiServer.getClientForServer(ServerId(serverId));
+    return liveTvChannelItem(channel, backend: client?.backend ?? _currentMetadata.backend, serverId: serverId);
   }
 
   /// Retry the live stream with degraded direct-stream settings.
@@ -217,7 +231,7 @@ extension _VideoPlayerLiveTvMethods on VideoPlayerScreenState {
       },
       // Jellyfin's recover() returns the receiver, so the recovered object can
       // be the still-current session; the retry helper skips the discard by
-      // identity so a failed retry cannot terminally stop-report it.
+      // identity so a failed retry cannot terminally release it.
       currentSession: () => _live.session,
       discardSession: _abandonLiveSession,
       reportFailure: (error, stackTrace) {
@@ -253,14 +267,17 @@ extension _VideoPlayerLiveTvMethods on VideoPlayerScreenState {
     bool awaitClock = false,
     bool? play,
     bool applyOptions = true,
+    bool timeShifted = false,
+    void Function()? onOpenStarted,
   }) async {
-    if (_shuttingDown) return false;
+    if (_shuttingDown || !_launchCurrent) return false;
     _live.streamGeneration++;
     final media = Media(streamUrl, headers: const {'Accept-Language': 'en'});
     final playNow = play ?? automotivePlaybackAllowedNow();
     if (targetEpoch == null || player is! PlayerNative) {
       if (applyOptions) await _setLiveStreamOptions(player);
-      if (_shuttingDown) return false;
+      if (_shuttingDown || !_launchCurrent) return false;
+      onOpenStarted?.call();
       await player.open(media, play: playNow, isLive: true);
       return true;
     }
@@ -270,8 +287,9 @@ extension _VideoPlayerLiveTvMethods on VideoPlayerScreenState {
     final int? sourceId;
     try {
       if (applyOptions) await _setLiveStreamOptions(player);
-      if (_shuttingDown) return false;
-      sourceId = await player.open(media, play: playNow, isLive: true);
+      if (_shuttingDown || !_launchCurrent) return false;
+      onOpenStarted?.call();
+      sourceId = await player.open(media, play: playNow, isLive: true, startLivePlaylistFromBeginning: timeShifted);
     } catch (_) {
       _live.failClockOpen(clockGeneration);
       rethrow;
@@ -349,6 +367,7 @@ extension _VideoPlayerLiveTvMethods on VideoPlayerScreenState {
       streamUrl,
       targetEpoch: clamped,
       awaitClock: currentPlayer is PlayerNative,
+      timeShifted: true,
     );
     if (!mounted || player != currentPlayer) return false;
     _setPlayerState(() {});
@@ -448,7 +467,6 @@ extension _VideoPlayerLiveTvMethods on VideoPlayerScreenState {
     await _runLiveSeek(targetEpochSeconds);
   }
 
-  /// Jump to the live edge of the capture buffer.
   Future<void> _jumpToLiveEdge() async {
     if (_live.captureBuffer == null) return;
     await _seekLiveToEpoch(_live.captureBuffer!.seekableEndEpoch);
@@ -508,8 +526,18 @@ extension _VideoPlayerLiveTvMethods on VideoPlayerScreenState {
       });
       _live.markStreamRestartedAtLiveEdge(session.captureBuffer);
       final targetEpoch = session.captureBuffer == null ? null : _live.streamStartEpoch.round();
-      replacementOpenStarted = true;
-      await _openLiveStream(currentPlayer, streamUrl, targetEpoch: targetEpoch);
+      await _openLiveStream(
+        currentPlayer,
+        streamUrl,
+        targetEpoch: targetEpoch,
+        onOpenStarted: () {
+          replacementOpenStarted = true;
+          // The native state belongs to the replacement from this point,
+          // before its session/channel is adopted after timeline reporting.
+          // Detach the receipt, not the screen's launch lifetime fence.
+          widget.launchObserver?.detach();
+        },
+      );
       if (!isCurrentChannelSwitch()) {
         _abandonLiveSession(session);
         return;
@@ -533,7 +561,23 @@ extension _VideoPlayerLiveTvMethods on VideoPlayerScreenState {
       _setPlayerState(() {
         _live.channelIndex = newIndex;
         _live.channelName = channel.displayName;
+        _currentMetadata = _liveChannelItem(channel);
       });
+
+      // The screen now describes a different channel: republish before the
+      // heartbeats restart, or the OS controls, the client lookups and the
+      // scoped player preferences stay pinned to the channel tuned first.
+      final mediaControlsManager = _mediaControlsManager;
+      if (mediaControlsManager != null) {
+        unawaited(
+          mediaControlsManager.updateMetadata(
+            metadata: _currentMetadata,
+            client: _getOnlineMediaServerClient(context),
+            duration: null,
+          ),
+        );
+      }
+      unawaited(_mediaControls.syncAvailability());
 
       // Restart timeline heartbeats for the new session
       _startLiveTimelineUpdates();
@@ -549,7 +593,7 @@ extension _VideoPlayerLiveTvMethods on VideoPlayerScreenState {
         });
       }
       appLogger.e('Failed to switch channel', error: e);
-      if (mounted) showErrorSnackBar(context, e.toString());
+      if (mounted) showErrorSnackBar(context, t.liveTv.channelSwitchFailed(reason: localizedErrorReason(e)));
     } finally {
       _transitionGate.release(transitionLease);
     }

@@ -61,27 +61,37 @@ extension _PlexVideoControlsVisibilityMethods on _PlexVideoControlsState {
     });
   }
 
-  /// Controls hide delay: 5s on mobile/TV/keyboard-nav, 3s on desktop with mouse.
-  /// Maestro builds extend the delay because accessibility-tree queries can take
-  /// longer than the production timeout on physical devices.
+  /// Controls hide delay: 10s under D-pad/keyboard navigation (the viewer reads
+  /// each label between presses, and a remote has no tap to bring the OSD
+  /// back), 5s on touch mobile, 3s on desktop with a mouse. Maestro builds
+  /// extend the delay because accessibility-tree queries can take longer than
+  /// the production timeout on physical devices.
   Duration get _hideDelay {
     if (const bool.fromEnvironment('PLEZY_MAESTRO_E2E')) {
       return const Duration(seconds: 30);
     }
+    if (playerDirectionalNavigationEnabled()) {
+      return const Duration(seconds: 10);
+    }
     final isMobile = (Platform.isIOS || Platform.isAndroid) && !PlatformDetector.isTV();
-    if (isMobile || playerDirectionalNavigationEnabled()) {
+    if (isMobile) {
       return const Duration(seconds: 5);
     }
     return const Duration(seconds: 3);
   }
 
-  /// Shared hide logic: hides controls, notifies parent, updates traffic lights, restores focus.
+  /// Hide the controls. Notifying the parent, updating the traffic lights and
+  /// restoring focus all moved into [ChromeController.hide].
   void _hideControls() {
     if (!mounted) return;
     widget.chromeController.hide();
   }
 
-  void _startHideTimer() => widget.chromeController.startAutoHide();
+  void _startHideTimer() {
+    // Sheet completion can arrive after the controls and their route retire.
+    if (!mounted) return;
+    widget.chromeController.startAutoHide();
+  }
 
   /// Restart the hide timer on user interaction for the current playback state.
   void _restartHideTimerForCurrentPlaybackState() => widget.chromeController.restartAutoHideForCurrentPlaybackState();
@@ -113,14 +123,10 @@ extension _PlexVideoControlsVisibilityMethods on _PlexVideoControlsState {
 
   /// Apply preferred orientations for the given lock state. Wired to
   /// [SettingsService.rotationLocked] via [bindEffect] so any change — from
-  /// this toggle or from the settings screen — fires the same SystemChrome call.
+  /// this toggle or from the settings screen — takes the same path, and
+  /// [OrientationHelper] keeps fixed-orientation platforms (car, TV) out of it.
   void _applyRotationLock(bool locked) {
-    if (PlatformDetector.isAutomotive()) return;
-    unawaited(
-      SystemChrome.setPreferredOrientations(
-        locked ? const [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight] : DeviceOrientation.values,
-      ),
-    );
+    unawaited(locked ? OrientationHelper.lockLandscapeOrientation() : OrientationHelper.restoreDefaultOrientations());
   }
 
   void _toggleRotationLock() {

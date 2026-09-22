@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logger/logger.dart';
 import 'package:plezy/focus/input_mode_tracker.dart';
 import 'package:plezy/i18n/strings.g.dart';
 import 'package:plezy/media/ids.dart';
@@ -17,6 +18,7 @@ import 'package:plezy/services/multi_server_manager.dart';
 import 'package:plezy/services/settings_service.dart';
 import 'package:plezy/theme/mono_theme.dart';
 import 'package:plezy/utils/media_server_http_client.dart';
+import 'package:plezy/utils/app_logger.dart' as logging;
 import 'package:plezy/utils/grid_size_calculator.dart';
 import 'package:plezy/widgets/focusable_media_card.dart';
 import 'package:plezy/widgets/media_card.dart';
@@ -69,6 +71,43 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Item 204'), findsOneWidget);
     expect(find.text('Item 203'), findsNothing);
+  });
+
+  testWidgets('iOS status-bar tap scrolls the hub grid to top', (tester) async {
+    final items = List.generate(60, (index) => _item(index, backend: MediaBackend.jellyfin));
+    final harness = await _createHarness(items, backend: MediaBackend.jellyfin);
+
+    await tester.pumpWidget(
+      harness.wrap(
+        MediaQuery(
+          data: const MediaQueryData(padding: EdgeInsets.only(top: 25)),
+          child: HubDetailScreen(
+            hub: MediaHub(
+              id: 'home.recent',
+              title: 'Recent',
+              type: 'movie',
+              items: items.take(5).toList(),
+              size: items.length,
+              more: true,
+              libraryId: '7',
+              serverId: 'server_1',
+            ),
+          ),
+        ),
+        platform: TargetPlatform.iOS,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final position = tester.state<ScrollableState>(find.byType(Scrollable)).position;
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -3000));
+    await tester.pumpAndSettle();
+    expect(position.pixels, greaterThan(0));
+
+    tester.simulateStatusBarTap();
+    await tester.pumpAndSettle();
+
+    expect(position.pixels, 0);
   });
 
   testWidgets('Jellyfin Recently Added fetches every page only as the user reaches the end', (tester) async {
@@ -225,6 +264,63 @@ void main() {
       expect(FocusManager.instance.primaryFocus?.debugLabel, 'hub_detail_item_1');
     });
   });
+
+  group('default sort fallback logging', () {
+    // Sort options are fetched per Plex library section. Aggregated rows
+    // (Continue Watching spans servers) and MediaBrowser hubs name no section,
+    // so falling back to the default sorts is the designed path and must not
+    // raise a warning; a Plex section hub that lost its serverId is a real
+    // tagging defect and must.
+    late Logger originalLogger;
+    late _RecordingLogOutput logOutput;
+
+    setUp(() {
+      originalLogger = logging.appLogger;
+      logOutput = _RecordingLogOutput();
+      logging.appLogger = Logger(printer: SimplePrinter(), output: logOutput);
+    });
+    tearDown(() => logging.appLogger = originalLogger);
+
+    Future<void> pumpHub(WidgetTester tester, {required String id, String? identifier, String? serverId}) async {
+      final items = List.generate(3, (index) => _item(index, backend: MediaBackend.plex));
+      final harness = await _createHarness(items, backend: MediaBackend.plex);
+      await tester.pumpWidget(
+        harness.wrap(
+          HubDetailScreen(
+            hub: MediaHub(
+              id: id,
+              identifier: identifier,
+              title: 'Hub',
+              type: 'mixed',
+              items: items,
+              size: items.length,
+              serverId: serverId,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the synthesized Continue Watching hub opens without a warning', (tester) async {
+      await pumpHub(tester, id: 'continue_watching', identifier: '_continue_watching_');
+
+      expect(logOutput.levels.where((level) => level.value >= Level.warning.value), isEmpty);
+      expect(find.byTooltip(t.libraries.sort), findsOneWidget);
+    });
+
+    testWidgets('a MediaBrowser hub key opens without a warning', (tester) async {
+      await pumpHub(tester, id: 'home.recent', identifier: 'home.recent', serverId: 'server_1');
+
+      expect(logOutput.levels.where((level) => level.value >= Level.warning.value), isEmpty);
+    });
+
+    testWidgets('a Plex section hub that lost its serverId still warns', (tester) async {
+      await pumpHub(tester, id: '/hubs/sections/1/recentlyAdded');
+
+      expect(logOutput.levels, contains(Level.warning));
+    });
+  });
 }
 
 MediaItem _item(int index, {required MediaBackend backend, String? libraryId}) => testMediaItem(
@@ -264,17 +360,24 @@ class _HubHarness {
   final _PagedHubClient client;
   final MultiServerProvider provider;
 
-  Widget wrap(Widget child) => TranslationProvider(
+  Widget wrap(Widget child, {TargetPlatform? platform}) => TranslationProvider(
     child: ChangeNotifierProvider<MultiServerProvider>.value(
       value: provider,
       child: InputModeTracker(
         child: MaterialApp(
-          theme: monoTheme(dark: true),
+          theme: monoTheme(dark: true).copyWith(platform: platform),
           home: SizedBox(width: 1280, height: 720, child: child),
         ),
       ),
     ),
   );
+}
+
+class _RecordingLogOutput extends LogOutput {
+  final List<Level> levels = [];
+
+  @override
+  void output(OutputEvent event) => levels.add(event.level);
 }
 
 class _PagedHubClient implements MediaServerClient {

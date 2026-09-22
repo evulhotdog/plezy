@@ -13,6 +13,11 @@ import 'shortcut_action.dart';
 import '../utils/platform_detector.dart';
 import '../utils/player_utils.dart';
 
+class HotkeyConflictException implements Exception {
+  const HotkeyConflictException(this.action);
+  final String action;
+}
+
 class KeyboardShortcutsService extends ChangeNotifier {
   static KeyboardShortcutsService? _instance;
   static Future<void>? _initialization;
@@ -111,20 +116,74 @@ class KeyboardShortcutsService extends ChangeNotifier {
 
   Future<void> setHotkey(String action, HotKey? hotkey) {
     return _serializeShortcutMutation(() async {
-      await _settingsService.write(SettingsService.keyboardHotkeys, <String, HotKey?>{..._hotkeys, action: hotkey});
+      final conflict = hotkey == null ? null : getActionForHotkey(hotkey);
+      if (conflict != null && conflict != action) throw HotkeyConflictException(conflict);
+      final next = <String, HotKey?>{..._hotkeys, action: hotkey};
+      validateHotkeys(next);
+      await _settingsService.write(SettingsService.keyboardHotkeys, next);
     });
   }
 
-  Future<void> refreshFromStorage() async {
-    _settingsBinding.refresh();
-  }
-
-  Future<void> resetToDefaults() {
+  Future<void> resetToDefaults({void Function()? checkCurrent}) {
     return _serializeShortcutMutation(() async {
-      await _settingsService.write(SettingsService.keyboardHotkeys, <String, HotKey?>{
-        ...SettingsService.defaultKeyboardHotkeys(),
-      });
+      checkCurrent?.call();
+      await _settingsService.reset(SettingsService.keyboardHotkeys, checkCurrent: checkCurrent);
     });
+  }
+
+  Future<void> replaceHotkeys(Map<String, HotKey?> hotkeys, {void Function()? checkCurrent}) {
+    validateHotkeys(hotkeys);
+    return _serializeShortcutMutation(() async {
+      checkCurrent?.call();
+      await _settingsService.write(SettingsService.keyboardHotkeys, hotkeys, checkCurrent: checkCurrent);
+    });
+  }
+
+  /// Missing actions inherit the shipped defaults; null explicitly disables an
+  /// action. Validation runs against the complete effective map.
+  static Map<String, HotKey?> hotkeysFromJson(Object? value) {
+    if (value is! Map<String, dynamic>) throw const FormatException('Expected a shortcut map');
+    final result = <String, HotKey?>{...SettingsService.defaultKeyboardHotkeys()};
+    for (final entry in value.entries) {
+      if (ShortcutAction.fromId(entry.key) == null) throw const FormatException('Unknown shortcut action');
+      final raw = entry.value;
+      if (raw == null) {
+        result[entry.key] = null;
+        continue;
+      }
+      if (raw is! Map<String, dynamic> ||
+          raw.keys.any((key) => key != 'key' && key != 'modifiers') ||
+          raw['key'] is! String ||
+          !RegExp(r'^[0-9a-fA-F]{8}$').hasMatch(raw['key'] as String) ||
+          raw['modifiers'] is! List) {
+        throw const FormatException('Expected a USB HID key and modifier list');
+      }
+      final modifiers = raw['modifiers'] as List;
+      if (modifiers.toSet().length != modifiers.length ||
+          modifiers.any((m) => !HotKeyModifier.values.any((known) => known.name == m))) {
+        throw const FormatException('Unknown or duplicate shortcut modifier');
+      }
+      final hotkey = SettingsService.deserializeHotKey(raw);
+      if (hotkey == null || hotkey.key.usbHidUsage == 0) {
+        throw const FormatException('Expected a nonzero physical key code');
+      }
+      result[entry.key] = hotkey;
+    }
+    validateHotkeys(result);
+    return result;
+  }
+
+  static void validateHotkeys(Map<String, HotKey?> hotkeys) {
+    final assigned = <HotKey, String>{};
+    for (final entry in hotkeys.entries) {
+      if (ShortcutAction.fromId(entry.key) == null) throw const FormatException('Unknown shortcut action');
+      final hotkey = entry.value;
+      if (hotkey == null) continue;
+      for (final other in assigned.entries) {
+        if (_hotkeyEquals(other.key, hotkey)) throw HotkeyConflictException(other.value);
+      }
+      assigned[hotkey] = entry.key;
+    }
   }
 
   Future<void> _serializeShortcutMutation(Future<void> Function() operation) {
@@ -204,7 +263,6 @@ class KeyboardShortcutsService extends ChangeNotifier {
     VoidCallback? onVolumeUp,
     VoidCallback? onVolumeDown,
     VoidCallback? onToggleMute,
-    ValueChanged<int>? onLiveSeekBy,
 
     /// Persists a speed changed by the speed shortcuts. Supplied by the
     /// player surface so the write can honor the configured persistence
@@ -243,131 +301,103 @@ class KeyboardShortcutsService extends ChangeNotifier {
       final action = ShortcutAction.fromId(entry.key);
 
       final requiredModifiers = hotkey.modifiers ?? [];
-      bool modifiersMatch = true;
+      final hasShift = requiredModifiers.contains(HotKeyModifier.shift);
+      final hasControl = requiredModifiers.contains(HotKeyModifier.control);
+      final hasAlt = requiredModifiers.contains(HotKeyModifier.alt);
+      final hasMeta = requiredModifiers.contains(HotKeyModifier.meta);
 
-      for (final modifier in requiredModifiers) {
-        switch (modifier) {
-          case HotKeyModifier.shift:
-            if (!isShiftPressed) modifiersMatch = false;
-            break;
-          case HotKeyModifier.control:
-            if (!isControlPressed) modifiersMatch = false;
-            break;
-          case HotKeyModifier.alt:
-            if (!isAltPressed) modifiersMatch = false;
-            break;
-          case HotKeyModifier.meta:
-            if (!isMetaPressed) modifiersMatch = false;
-            break;
-          case HotKeyModifier.capsLock:
-            break;
-          case HotKeyModifier.fn:
-            break;
-        }
-        if (!modifiersMatch) break;
+      if (isShiftPressed != hasShift ||
+          isControlPressed != hasControl ||
+          isAltPressed != hasAlt ||
+          isMetaPressed != hasMeta) {
+        continue;
       }
 
-      if (modifiersMatch) {
-        final hasShift = requiredModifiers.contains(HotKeyModifier.shift);
-        final hasControl = requiredModifiers.contains(HotKeyModifier.control);
-        final hasAlt = requiredModifiers.contains(HotKeyModifier.alt);
-        final hasMeta = requiredModifiers.contains(HotKeyModifier.meta);
-
-        if (isShiftPressed != hasShift ||
-            isControlPressed != hasControl ||
-            isAltPressed != hasAlt ||
-            isMetaPressed != hasMeta) {
-          continue;
-        }
-
-        if (isRepeat && !(action?.repeatable ?? false)) {
-          return KeyEventResult.handled;
-        }
-
-        if (action == null ||
-            (action.requiresPlayback && !canControlPlayback) ||
-            (action.requiresMediaNavigation && !canNavigateMediaItems)) {
-          return KeyEventResult.handled;
-        }
-
-        void performSeek(int offsetSeconds) {
-          if (onSeekBy != null) {
-            onSeekBy(offsetSeconds);
-            return;
-          }
-          // Relative live-TV skip: route through the parent accumulator, which
-          // coalesces a rapid burst into one transcode re-open (#1253).
-          if (onLiveSeekBy != null) {
-            onLiveSeekBy(offsetSeconds);
-          } else {
-            final target = clampSeekPosition(player, player.state.position + Duration(seconds: offsetSeconds));
-            unawaited((onSeekRequested ?? player.seek)(target));
-          }
-        }
-
-        switch (action) {
-          case ShortcutAction.playPause:
-            (onPlayPause ?? player.playOrPause).call();
-          case ShortcutAction.volumeUp:
-            onVolumeUp?.call();
-          case ShortcutAction.volumeDown:
-            onVolumeDown?.call();
-          case ShortcutAction.seekForward:
-            performSeek(_seekTimeSmall);
-          case ShortcutAction.seekBackward:
-            performSeek(-_seekTimeSmall);
-          case ShortcutAction.seekForwardLarge:
-            performSeek(_seekTimeLarge);
-          case ShortcutAction.seekBackwardLarge:
-            performSeek(-_seekTimeLarge);
-          case ShortcutAction.fullscreenToggle:
-            onToggleFullscreen?.call();
-          case ShortcutAction.muteToggle:
-            onToggleMute?.call();
-          case ShortcutAction.subtitleToggle:
-            onToggleSubtitles?.call();
-          case ShortcutAction.audioTrackNext:
-            onNextAudioTrack?.call();
-          case ShortcutAction.subtitleTrackNext:
-            onNextSubtitleTrack?.call();
-          case ShortcutAction.chapterNext:
-            onNextChapter?.call();
-          case ShortcutAction.chapterPrevious:
-            onPreviousChapter?.call();
-          case ShortcutAction.episodeNext:
-            onNextEpisode?.call();
-          case ShortcutAction.episodePrevious:
-            onPreviousEpisode?.call();
-          case ShortcutAction.speedIncrease:
-            final newRateUp = (player.state.rate + 0.25).clamp(minimumPlaybackRate, maximumPlaybackRate);
-            unawaited((onRateRequested ?? player.setRate)(newRateUp));
-            onSpeedPersist?.call(newRateUp);
-          case ShortcutAction.speedDecrease:
-            final newRateDown = (player.state.rate - 0.25).clamp(minimumPlaybackRate, maximumPlaybackRate);
-            unawaited((onRateRequested ?? player.setRate)(newRateDown));
-            onSpeedPersist?.call(newRateDown);
-          case ShortcutAction.speedReset:
-            unawaited((onRateRequested ?? player.setRate)(1.0));
-            onSpeedPersist?.call(1.0);
-          case ShortcutAction.subSeekNext:
-            player.command(['sub-seek', '1']);
-          case ShortcutAction.subSeekPrev:
-            player.command(['sub-seek', '-1']);
-          case ShortcutAction.shaderToggle:
-            onToggleShader?.call();
-          case ShortcutAction.skipMarker:
-            onSkipMarker?.call();
-          case ShortcutAction.screenshot:
-            unawaited(player.command(['screenshot', 'subtitles']).then((_) => onScreenshot?.call()));
-          case ShortcutAction.zoomIn:
-            onZoomIn?.call();
-          case ShortcutAction.zoomOut:
-            onZoomOut?.call();
-          case ShortcutAction.zoomReset:
-            onZoomReset?.call();
-        }
+      if (isRepeat && !(action?.repeatable ?? false)) {
         return KeyEventResult.handled;
       }
+
+      if (action == null ||
+          (action.requiresPlayback && !canControlPlayback) ||
+          (action.requiresMediaNavigation && !canNavigateMediaItems)) {
+        return KeyEventResult.handled;
+      }
+
+      void performSeek(int offsetSeconds) {
+        if (onSeekBy != null) {
+          onSeekBy(offsetSeconds);
+          return;
+        }
+        final target = clampSeekPosition(player, player.state.position + Duration(seconds: offsetSeconds));
+        unawaited((onSeekRequested ?? player.seek)(target));
+      }
+
+      void applyRate(double rate) {
+        unawaited((onRateRequested ?? player.setRate)(rate));
+        onSpeedPersist?.call(rate);
+      }
+
+      void stepRate(double delta) {
+        applyRate((player.state.rate + delta).clamp(minimumPlaybackRate, maximumPlaybackRate));
+      }
+
+      switch (action) {
+        case ShortcutAction.playPause:
+          (onPlayPause ?? player.playOrPause).call();
+        case ShortcutAction.volumeUp:
+          onVolumeUp?.call();
+        case ShortcutAction.volumeDown:
+          onVolumeDown?.call();
+        case ShortcutAction.seekForward:
+          performSeek(_seekTimeSmall);
+        case ShortcutAction.seekBackward:
+          performSeek(-_seekTimeSmall);
+        case ShortcutAction.seekForwardLarge:
+          performSeek(_seekTimeLarge);
+        case ShortcutAction.seekBackwardLarge:
+          performSeek(-_seekTimeLarge);
+        case ShortcutAction.fullscreenToggle:
+          onToggleFullscreen?.call();
+        case ShortcutAction.muteToggle:
+          onToggleMute?.call();
+        case ShortcutAction.subtitleToggle:
+          onToggleSubtitles?.call();
+        case ShortcutAction.audioTrackNext:
+          onNextAudioTrack?.call();
+        case ShortcutAction.subtitleTrackNext:
+          onNextSubtitleTrack?.call();
+        case ShortcutAction.chapterNext:
+          onNextChapter?.call();
+        case ShortcutAction.chapterPrevious:
+          onPreviousChapter?.call();
+        case ShortcutAction.episodeNext:
+          onNextEpisode?.call();
+        case ShortcutAction.episodePrevious:
+          onPreviousEpisode?.call();
+        case ShortcutAction.speedIncrease:
+          stepRate(0.25);
+        case ShortcutAction.speedDecrease:
+          stepRate(-0.25);
+        case ShortcutAction.speedReset:
+          applyRate(1.0);
+        case ShortcutAction.subSeekNext:
+          player.command(['sub-seek', '1']);
+        case ShortcutAction.subSeekPrev:
+          player.command(['sub-seek', '-1']);
+        case ShortcutAction.shaderToggle:
+          onToggleShader?.call();
+        case ShortcutAction.skipMarker:
+          onSkipMarker?.call();
+        case ShortcutAction.screenshot:
+          unawaited(player.command(['screenshot', 'subtitles']).then((_) => onScreenshot?.call()));
+        case ShortcutAction.zoomIn:
+          onZoomIn?.call();
+        case ShortcutAction.zoomOut:
+          onZoomOut?.call();
+        case ShortcutAction.zoomReset:
+          onZoomReset?.call();
+      }
+      return KeyEventResult.handled;
     }
 
     return KeyEventResult.ignored;
@@ -389,7 +419,7 @@ class KeyboardShortcutsService extends ChangeNotifier {
     return null;
   }
 
-  bool _hotkeyEquals(HotKey a, HotKey b) {
+  static bool _hotkeyEquals(HotKey a, HotKey b) {
     if (a.key != b.key) return false;
 
     final aModifiers = Set.from(a.modifiers ?? []);

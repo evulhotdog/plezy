@@ -41,6 +41,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.0.3"
+  archive:
+    dependency: "direct dev"
+    description:
+      name: archive
+      sha256: ace891da0862b0e4cabbb064ee3fd87b2728b898949fdb366d83fe98342c9f19
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.2.0"
   args:
     dependency: transitive
     description:
@@ -97,11 +105,11 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "12ef3ff758709e3ceab8eccd6d43e0dea1c68ca1"
-      resolved-ref: "12ef3ff758709e3ceab8eccd6d43e0dea1c68ca1"
+      ref: "1bcc9978e9b5e503dd08176cc423cfabee703761"
+      resolved-ref: "1bcc9978e9b5e503dd08176cc423cfabee703761"
       url: "https://github.com/edde746/background_downloader"
     source: git
-    version: "9.5.6"
+    version: "9.6.2"
   boolean_selector:
     dependency: transitive
     description:
@@ -248,7 +256,7 @@ packages:
     source: git
     version: "7.2.0"
   connectivity_plus_platform_interface:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: connectivity_plus_platform_interface
       sha256: "3c09627c536d22fd24691a905cdd8b14520de69da52c7a97499c8be5284a32ed"
@@ -491,14 +499,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.3"
-  globbing:
-    dependency: transitive
-    description:
-      name: globbing
-      sha256: "4f89cfaf6fa74c9c1740a96259da06bd45411ede56744e28017cc534a12b6e2d"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.0.0"
   graphs:
     dependency: transitive
     description:
@@ -555,14 +555,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.1.2"
-  injector:
-    dependency: transitive
-    description:
-      name: injector
-      sha256: ed389bed5b48a699d5b9561c985023d0d5cc88dd5ff2237aadcce5a5ab433e4e
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.0.0"
   intl:
     dependency: "direct main"
     description:
@@ -876,6 +868,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.5.2"
+  posix:
+    dependency: transitive
+    description:
+      name: posix
+      sha256: bc1bad54ad2b735816e31f8d4600cfde6c7839975085ddfbca48b6c9f7c4044e
+      url: "https://pub.dev"
+    source: hosted
+    version: "6.5.2"
   process:
     dependency: transitive
     description:
@@ -884,14 +884,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "5.0.5"
-  properties:
-    dependency: transitive
-    description:
-      name: properties
-      sha256: "333f427dd4ed07bdbe8c75b9ff864a1e70b5d7a8426a2e8bdd457b65ae5ac598"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.1.1"
   provider:
     dependency: "direct main"
     description:
@@ -1023,26 +1015,18 @@ packages:
     dependency: transitive
     description:
       name: sentry
-      sha256: a84bf3a83b3ce1c89fce28b9f97659e3826df14a73a256952465aac2c5efdf5a
+      sha256: bf80a571e370aad3f68b5c26d43f31cc230a084c250fb3138a83da6032ba0c01
       url: "https://pub.dev"
     source: hosted
-    version: "9.25.0"
-  sentry_dart_plugin:
-    dependency: "direct dev"
-    description:
-      name: sentry_dart_plugin
-      sha256: da9c1d0b3c87a251bfc36301f16af090a88c2d59128fe9a6f908f5ac20340c97
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.4.0"
+    version: "9.30.0"
   sentry_flutter:
     dependency: "direct main"
     description:
       name: sentry_flutter
-      sha256: c85575266d91f57364e9b4cb522835156ec3c5581c78339dc7fae491cd0c6f76
+      sha256: da36fbb1581c0f66a0c8fc76f8aadb62d9ea567ba950c97eb326e959482c342a
       url: "https://pub.dev"
     source: hosted
-    version: "9.25.0"
+    version: "9.30.0"
   serial_csv:
     dependency: transitive
     description:
@@ -1230,14 +1214,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.0"
-  system_info2:
-    dependency: transitive
-    description:
-      name: system_info2
-      sha256: b937736ecfa63c45b10dde1ceb6bb30e5c0c340e14c441df024150679d65ac43
-      url: "https://pub.dev"
-    source: hosted
-    version: "4.1.0"
   term_glyph:
     dependency: transitive
     description:
@@ -1502,5 +1478,5 @@ packages:
     source: hosted
     version: "2.2.4"
 sdks:
-  dart: ">=3.12.0 <4.0.0"
+  dart: ">=3.13.0 <4.0.0"
   flutter: ">=3.47.0"

@@ -53,6 +53,20 @@ final class _GuardedInvokingPlayerNative extends PlayerNative {
   Future<T?> debugInvoke<T>(String method) => invoke<T>(method);
 }
 
+/// Delivers [event] on the player event channel, waiting for the platform
+/// reply and one microtask turn so the stream handler has run before the
+/// caller's next statement.
+Future<void> _sendPlatformEvent(Object? event) async {
+  final done = Completer<void>();
+  await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.handlePlatformMessage(
+    'com.plezy/mpv_player/events',
+    const StandardMethodCodec().encodeSuccessEnvelope(event),
+    (_) => done.complete(),
+  );
+  await done.future;
+  await Future<void>.delayed(Duration.zero);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -535,33 +549,19 @@ void main() {
         final subscription = player.streams.hdrOutputChanged.listen((_) => changes++);
         try {
           await player.setLogLevel('warn');
-          final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-          const codec = StandardMethodCodec();
-
-          Future<void> sendEvent(Object? event) async {
-            final done = Completer<void>();
-            await messenger.handlePlatformMessage(
-              'com.plezy/mpv_player/events',
-              codec.encodeSuccessEnvelope(event),
-              (_) => done.complete(),
-            );
-            await done.future;
-            await Future<void>.delayed(Duration.zero);
-          }
-
-          await sendEvent(const {'type': 'event', 'name': 'hdr-output-changed'});
+          await _sendPlatformEvent(const {'type': 'event', 'name': 'hdr-output-changed'});
           expect(changes, 1);
 
           // The envelope needs both keys. Omitting `type` is not hypothetical -
           // it is exactly what the native side once sent, and the event was
           // dropped in silence, so the settings sheet kept whatever HDR verdict
           // it had from before the window moved.
-          await sendEvent(const {'name': 'hdr-output-changed'});
+          await _sendPlatformEvent(const {'name': 'hdr-output-changed'});
           expect(changes, 1);
 
           // And the channel is still live afterwards: a malformed sibling must
           // not take the subscription down with it.
-          await sendEvent(const {'type': 'event', 'name': 'hdr-output-changed'});
+          await _sendPlatformEvent(const {'type': 'event', 'name': 'hdr-output-changed'});
           expect(changes, 2);
         } finally {
           await subscription.cancel();
@@ -630,22 +630,9 @@ void main() {
         final player = PlayerNative();
         try {
           await player.setLogLevel('warn');
-          final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-          const codec = StandardMethodCodec();
-
-          Future<void> sendEvent(Object? event) async {
-            final done = Completer<void>();
-            await messenger.handlePlatformMessage(
-              'com.plezy/mpv_player/events',
-              codec.encodeSuccessEnvelope(event),
-              (_) => done.complete(),
-            );
-            await done.future;
-            await Future<void>.delayed(Duration.zero);
-          }
 
           Future<void> sendObservation(String name, Object? value) async {
-            await sendEvent([observations[name], value]);
+            await _sendPlatformEvent([observations[name], value]);
           }
 
           await sendObservation('track-list', const [
@@ -691,9 +678,9 @@ void main() {
 
           // Malformed envelopes and malformed siblings are ignored without
           // taking down the event subscription or discarding valid siblings.
-          await sendEvent(['not-a-property-id', const {}]);
-          await sendEvent({'type': 'event', 'name': 7, 'data': const {}});
-          await sendEvent({'type': 'event', 'name': 'unknown', 'data': 'not-a-map'});
+          await _sendPlatformEvent(['not-a-property-id', const {}]);
+          await _sendPlatformEvent({'type': 'event', 'name': 7, 'data': const {}});
+          await _sendPlatformEvent({'type': 'event', 'name': 'unknown', 'data': 'not-a-map'});
           await sendObservation('track-list', const [
             {'type': 7, 'id': 'bad'},
             {
@@ -827,6 +814,27 @@ void main() {
           await expectLater(
             error,
             completion(isA<PlayerError>().having((value) => value.message, 'message', 'Playback error')),
+          );
+        } finally {
+          await player.dispose();
+        }
+      },
+    );
+  });
+
+  test('mpv end-file error with a code but no diagnostic message names the mpv error', () async {
+    await withMockPlayerChannels(
+      methodChannelName: 'com.plezy/mpv_player',
+      eventChannelName: 'com.plezy/mpv_player/events',
+      testBody: () async {
+        final player = PlayerNative();
+        final error = player.streams.error.first;
+        try {
+          player.handlePlayerEvent('end-file', {'reason': 4, 'error': -13});
+
+          await expectLater(
+            error,
+            completion(isA<PlayerError>().having((value) => value.message, 'message', 'loading failed')),
           );
         } finally {
           await player.dispose();
@@ -1033,7 +1041,79 @@ void main() {
     );
   });
 
-  test('failed passthrough restores requested normalization', () async {
+  test('normalization takes precedence over active passthrough and hands it back when turned off', () async {
+    final audioWrites = <(String, String)>[];
+    await withMockPlayerChannels(
+      methodChannelName: 'com.plezy/mpv_player',
+      eventChannelName: 'com.plezy/mpv_player/events',
+      methodHandler: (call) async {
+        if (call.method == 'initialize') return true;
+        if (call.method == 'setProperty') {
+          final arguments = call.arguments as Map;
+          final name = arguments['name'] as String;
+          if (name == 'af' || name == 'audio-spdif') audioWrites.add((name, arguments['value'] as String));
+        }
+        return null;
+      },
+      testBody: () async {
+        final player = PlayerNative();
+        try {
+          await player.setAudioPassthrough(true);
+          expect(player.audioPassthroughActive, isTrue);
+
+          await player.setAudioNormalization(true);
+          expect(player.audioPassthroughActive, isFalse);
+
+          await player.setAudioNormalization(false);
+          expect(player.audioPassthroughActive, isTrue);
+
+          // Passthrough leaves before loudnorm lands, and loudnorm clears
+          // before passthrough re-engages: mpv never filters a bitstream.
+          expect(audioWrites, [
+            ('audio-spdif', 'ac3,eac3,dts,dts-hd,truehd'),
+            ('audio-spdif', ''),
+            ('af', 'loudnorm=I=-14:TP=-3:LRA=4,format=srate=48000:format=floatp'),
+            ('af', ''),
+            ('audio-spdif', 'ac3,eac3,dts,dts-hd,truehd'),
+          ]);
+        } finally {
+          await player.dispose();
+        }
+      },
+    );
+  });
+
+  test('passthrough requested while normalization is on stays decoded', () async {
+    final audioWrites = <(String, String)>[];
+    await withMockPlayerChannels(
+      methodChannelName: 'com.plezy/mpv_player',
+      eventChannelName: 'com.plezy/mpv_player/events',
+      methodHandler: (call) async {
+        if (call.method == 'initialize') return true;
+        if (call.method == 'setProperty') {
+          final arguments = call.arguments as Map;
+          final name = arguments['name'] as String;
+          if (name == 'af' || name == 'audio-spdif') audioWrites.add((name, arguments['value'] as String));
+        }
+        return null;
+      },
+      testBody: () async {
+        final player = PlayerNative();
+        try {
+          await player.setAudioNormalization(true);
+          await player.setAudioPassthrough(true);
+
+          expect(player.audioPassthroughActive, isFalse);
+          expect(audioWrites, [('af', 'loudnorm=I=-14:TP=-3:LRA=4,format=srate=48000:format=floatp')]);
+        } finally {
+          await player.dispose();
+        }
+      },
+    );
+  });
+
+  test('failed passthrough re-entry restores normalization', () async {
+    var rejectPassthrough = false;
     final propertyWrites = <(String, String)>[];
     await withMockPlayerChannels(
       methodChannelName: 'com.plezy/mpv_player',
@@ -1044,15 +1124,18 @@ void main() {
           final arguments = call.arguments as Map;
           final write = (arguments['name'] as String, arguments['value'] as String);
           propertyWrites.add(write);
-          if (write.$1 == 'audio-spdif') throw PlatformException(code: 'SET_PROPERTY_FAILED');
+          if (write.$1 == 'audio-spdif' && rejectPassthrough) throw PlatformException(code: 'SET_PROPERTY_FAILED');
         }
         return null;
       },
       testBody: () async {
         final player = PlayerNative();
         try {
+          await player.setAudioPassthrough(true);
           await player.setAudioNormalization(true);
-          await expectLater(player.setAudioPassthrough(true), throwsA(isA<PlatformException>()));
+          rejectPassthrough = true;
+
+          await expectLater(player.setAudioNormalization(false), throwsA(isA<PlatformException>()));
 
           expect(propertyWrites.where((write) => write.$1 == 'af').map((write) => write.$2), [
             'loudnorm=I=-14:TP=-3:LRA=4,format=srate=48000:format=floatp',
