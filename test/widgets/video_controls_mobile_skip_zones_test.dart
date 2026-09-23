@@ -262,10 +262,10 @@ void main() {
 
     await doubleTap(tester, forwardZoneOf(tester));
     expect(player.seeks, [const Duration(minutes: 45)]);
-    expect(find.text('5s'), findsOneWidget);
+    expect(find.text('5s'), findsNWidgets(2), reason: 'fill + keyline copies');
 
     await doubleTap(tester, forwardZoneOf(tester));
-    expect(find.text('5s'), findsOneWidget, reason: 'nothing left to skip through');
+    expect(find.text('5s'), findsNWidgets(2), reason: 'nothing left to skip through');
     expect(find.text('15s'), findsNothing);
     expect(player.seeks, [const Duration(minutes: 45)], reason: 'a tap that travels nothing must not seek');
 
@@ -299,7 +299,7 @@ void main() {
 
     await doubleTap(tester, backwardZoneOf(tester));
     expect(player.seeks, [const Duration(minutes: 44, seconds: 50)]);
-    expect(find.text('10s'), findsOneWidget);
+    expect(find.text('10s'), findsNWidgets(2), reason: 'fill + keyline copies');
 
     await settleFeedback(tester);
   });

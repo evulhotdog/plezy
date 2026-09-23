@@ -214,7 +214,7 @@ void main() {
         await tester.pump();
       }
 
-      expect(find.text('25s'), findsOneWidget, reason: 'the readout reports the distance travelled, not five steps');
+      expect(find.text('25s'), findsNWidgets(2), reason: 'the readout reports the distance travelled, not five steps');
       expect(player.seeks, [const Duration(seconds: 15), const Duration(seconds: 5), Duration.zero]);
       expect(chrome.controlsVisible, isFalse);
 
@@ -242,7 +242,7 @@ void main() {
       await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowRight);
       await tester.pump();
 
-      expect(find.text('10s'), findsOneWidget);
+      expect(find.text('10s'), findsNWidgets(2));
       expect(player.seeks, [const Duration(seconds: 10)]);
 
       await settleFeedback(tester);
@@ -265,7 +265,7 @@ void main() {
       await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowLeft);
       await tester.pump();
 
-      expect(find.text('25s'), findsOneWidget);
+      expect(find.text('25s'), findsNWidgets(2));
       expect(find.text('26s'), findsNothing);
       expect(player.seeks, [Duration.zero]);
 
@@ -366,7 +366,7 @@ void main() {
       expect(player.seeks, [
         const Duration(minutes: 10, seconds: 10),
       ], reason: 'one press is one step, however long it is held');
-      expect(find.text('10s'), findsOneWidget);
+      expect(find.text('10s'), findsNWidgets(2));
 
       await settleFeedback(tester);
     });
@@ -617,10 +617,10 @@ void main() {
 
       headroom = 4;
       await pressRight();
-      expect(find.text('4s'), findsOneWidget);
+      expect(find.text('4s'), findsNWidgets(2));
 
       await pressRight();
-      expect(find.text('4s'), findsOneWidget, reason: 'pinned at the edge, the total holds');
+      expect(find.text('4s'), findsNWidgets(2), reason: 'pinned at the edge, the total holds');
       expect(find.text('14s'), findsNothing);
       expect(chrome.controlsVisible, isFalse);
 
